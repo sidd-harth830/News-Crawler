@@ -4,6 +4,7 @@ import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
 import Exa from 'exa-js';
 import { tavily } from '@tavily/core';
+import { sendRichNotifications } from './notifier';
 import 'dotenv/config';
 
 const parser = new Parser();
