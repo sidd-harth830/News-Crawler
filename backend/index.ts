@@ -298,6 +298,7 @@ async function runTest() {
                     } else {
                         console.log(`Skipping YouTube video ${result.url}: ${primaryError.message}`);
                         await handleApiError("Gemini / YouTube", primaryError);
+                    }
                 }
             }
 
