@@ -45,7 +45,7 @@ export default async function MainLayout({
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-zinc-950 text-slate-800 dark:text-white selection:bg-blue-500/30 transition-colors duration-300">
       <nav className="fixed top-0 left-0 right-0 z-[60] bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-stone-200 dark:border-white/10 transition-colors duration-300">
-        <div className="max-w-screen-2xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/dashboard" className="font-display font-black text-2xl tracking-tight text-slate-900 dark:text-white flex items-center gap-3 hover:opacity-80 transition-opacity">
             <Logo className="h-8 w-auto drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]" />
             Radar
@@ -81,7 +81,7 @@ export default async function MainLayout({
         </div>
       </nav>
       
-      <main className="pt-16 max-w-screen-2xl mx-auto">
+      <main className="pt-16 max-w-7xl mx-auto">
         {children}
       </main>
     </div>
