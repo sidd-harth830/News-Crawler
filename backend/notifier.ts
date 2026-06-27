@@ -24,7 +24,12 @@ export async function sendRichNotifications(
   impactSummary: string, 
   facts: string[]
 ) {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  let webhookUrl = process.env.DISCORD_MACRO_WEBHOOK_URL;
+  if (category.includes('Open-Source Repo') || category.includes('Technical')) {
+    webhookUrl = process.env.DISCORD_REPO_WEBHOOK_URL;
+  } else if (category.includes('Social') || category.includes('Video') || articleUrl.includes('youtube.com')) {
+    webhookUrl = process.env.DISCORD_VIDEO_WEBHOOK_URL;
+  }
 
   // Add to Telegram batch automatically with full content
   telegramBatch.push({
@@ -72,10 +77,11 @@ export async function sendRichNotifications(
 }
 
 export async function sendApiExhaustedAlert(serviceName: string, errorMsg: string) {
-  const logsWebhook = process.env.DISCORD_LOGS_WEBHOOK_URL;
-  if (!logsWebhook) return;
+  const alertsWebhook = process.env.DISCORD_ALERTS_WEBHOOK_URL;
+  if (!alertsWebhook) return;
   try {
-    await axios.post(logsWebhook, {
+    await axios.post(alertsWebhook, {
+      content: "<@YOUR_DISCORD_USER_ID>",
       embeds: [{
         title: `🚨 API EXHAUSTED: ${serviceName}`,
         color: 0xDC2626,
@@ -129,7 +135,8 @@ export async function sendBatchTelegram() {
 
   for (const a of telegramBatch) {
     try {
-      let html = `<b>🚀 ${a.category} <a href="${a.url}">${a.title}</a></b>\n`;
+      let html = `<b>📰 Category: ${a.category}</b>\n`;
+      html += `<b>🚀 <a href="${a.url}">${a.title}</a></b>\n`;
       html += `🔥 <i>Hype: ${a.hypeScore} | Sentiment: ${a.sentiment}</i>\n\n`;
       html += `<blockquote>${a.impactSummary}</blockquote>\n\n`;
       html += `<b>Key Facts:</b>\n`;

@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { Activity, Clock, Database, ChevronRight, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
-import AuditCountdown from '../components/AuditCountdown';
+import AuditCountdown from '@/app/components/AuditCountdown';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;

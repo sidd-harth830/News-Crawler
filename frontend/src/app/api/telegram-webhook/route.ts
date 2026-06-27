@@ -54,9 +54,35 @@ export async function POST(request: Request) {
         return NextResponse.json({ status: "error", message: "Missing PAT" }, { status: 500 });
       }
 
+      // User Feedback: Acknowledge the command via Telegram API and capture message ID
+      let tgMessageId = "";
+      if (tgToken) {
+        try {
+          const tgRes = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: "⏳ Manual override accepted. Initializing web crawlers. Scanning the internet now..."
+            })
+          });
+          const tgData = await tgRes.json();
+          if (tgData?.result?.message_id) {
+            tgMessageId = String(tgData.result.message_id);
+          }
+        } catch (tgErr) {
+          console.error("Failed to send Telegram acknowledgment", tgErr);
+        }
+      }
+
       // Ping GitHub Actions REST API to trigger workflow_dispatch
       const githubApiUrl = 'https://api.github.com/repos/sidd-harth830/News-Crawler/actions/workflows/cron.yml/dispatches';
       
+      const payload: any = { ref: 'master' };
+      if (tgMessageId) {
+        payload.inputs = { loading_message_id: tgMessageId };
+      }
+
       const ghResponse = await fetch(githubApiUrl, {
         method: 'POST',
         headers: {
@@ -65,25 +91,13 @@ export async function POST(request: Request) {
           'User-Agent': 'News-Crawler-Webhook',
           'X-GitHub-Api-Version': '2022-11-28',
         },
-        body: JSON.stringify({ ref: 'master' }),
+        body: JSON.stringify(payload),
       });
 
       if (!ghResponse.ok) {
         const errText = await ghResponse.text();
         console.error("GitHub API failed:", ghResponse.status, errText);
         return NextResponse.json({ status: "error", message: "GitHub Trigger Failed" }, { status: 500 });
-      }
-
-      // User Feedback: Acknowledge the command via Telegram API
-      if (tgToken) {
-        await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: "🚀 Manual override accepted. Initializing web crawlers. Scanning the internet now..."
-          })
-        });
       }
 
       return NextResponse.json({ status: "success", message: "Workflow triggered!" }, { status: 200 });

@@ -24,18 +24,20 @@ export default function FeedClient({
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="columns-1 md:columns-2 xl:columns-4 gap-6 space-y-6">
         {!articles || articles.length === 0 ? (
-          <div className="p-12 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-md text-center">
-            <p className="text-neutral-400 text-lg">{emptyMessage}</p>
+          <div className="p-12 rounded-3xl bg-white dark:bg-white/5 border border-stone-200 dark:border-white/10 text-center break-inside-avoid shadow-sm dark:shadow-none">
+            <p className="text-slate-500 dark:text-neutral-400 text-lg">{emptyMessage}</p>
           </div>
         ) : (
-          articles.map((article) => (
-            <FeedCard 
-              key={article.id} 
-              article={article} 
-              onClick={() => setActiveArticle(article)} 
-            />
+          articles.map((article, index) => (
+            <div key={article.id} className="break-inside-avoid mb-6">
+              <FeedCard 
+                article={article} 
+                index={index}
+                onClick={() => setActiveArticle(article)} 
+              />
+            </div>
           ))
         )}
       </div>

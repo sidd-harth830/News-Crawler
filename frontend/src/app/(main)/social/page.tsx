@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { Activity, Flame, MessageCircle, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
-import FeedClient from '../components/FeedClient';
+import FeedClient from '@/app/components/FeedClient';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;

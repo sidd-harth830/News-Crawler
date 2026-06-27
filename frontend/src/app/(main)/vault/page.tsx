@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { Bookmark, ChevronLeft, ChevronRight, ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import FeedClient from '../components/FeedClient';
+import FeedClient from '@/app/components/FeedClient';
 import { useSearchParams } from 'next/navigation';
 
 function VaultContent() {

@@ -556,6 +556,21 @@ async function runTest() {
   await sendBatchTelegram();
   await sendAuditLog(successfulIngests, exaQueries, tavilyQueries, firecrawlCreditsUsed, tokensUsed, errorLogs);
   console.log("All notifications dispatched.");
+
+  if (process.env.TELEGRAM_LOADING_MSG_ID && process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
+    try {
+      console.log(`Deleting Telegram loading message: ${process.env.TELEGRAM_LOADING_MSG_ID}`);
+      await axios.get(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/deleteMessage`, {
+        params: {
+          chat_id: process.env.TELEGRAM_CHAT_ID,
+          message_id: process.env.TELEGRAM_LOADING_MSG_ID
+        }
+      });
+    } catch (err: any) {
+      console.log(`Failed to delete Telegram loading message: ${err.message}`);
+    }
+  }
+
   console.log("Phase 7 Backend pipeline complete!");
   process.exit(0);
 }
