@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 
 export async function POST(request: Request) {
   try {
@@ -11,18 +13,42 @@ export async function POST(request: Request) {
     }
 
     const chatId = message.chat.id.toString();
-    const allowedChatId = process.env.TELEGRAM_CHAT_ID;
+    
+    // Fallback parser in case frontend/.env.local is missing the keys during local testing
+    let allowedChatId = process.env.TELEGRAM_CHAT_ID;
+    let githubPat = process.env.GITHUB_PAT;
+    let tgToken = process.env.TELEGRAM_BOT_TOKEN;
+
+    if (!allowedChatId || !githubPat || !tgToken) {
+      try {
+        const backendEnvPath = path.join(process.cwd(), '../backend/.env');
+        const envFile = fs.readFileSync(backendEnvPath, 'utf8');
+        
+        if (!allowedChatId) {
+          const m = envFile.match(/TELEGRAM_CHAT_ID=(.+)/);
+          if (m) allowedChatId = m[1].trim().replace(/^["']|["']$/g, '');
+        }
+        if (!tgToken) {
+          const m = envFile.match(/TELEGRAM_BOT_TOKEN=(.+)/);
+          if (m) tgToken = m[1].trim().replace(/^["']|["']$/g, '');
+        }
+        if (!githubPat) {
+          const m = envFile.match(/GITHUB_PAT=(.+)/);
+          if (m) githubPat = m[1].trim().replace(/^["']|["']$/g, '');
+        }
+      } catch(e) {
+        console.warn("Could not parse backend/.env for missing variables.");
+      }
+    }
     
     // Step 2 Security Check: Prevent unauthorized users from triggering our cloud crawlers
     if (chatId !== allowedChatId) {
-      console.warn(`Unauthorized scan attempt from Chat ID: ${chatId}`);
+      console.warn(`Unauthorized scan attempt from Chat ID: ${chatId} (Expected: ${allowedChatId})`);
       return NextResponse.json({ status: "unauthorized" }, { status: 403 });
     }
 
     // Only process exactly "/scan"
     if (message.text.trim() === '/scan') {
-      const githubPat = process.env.GITHUB_PAT;
-      
       if (!githubPat) {
         console.error("GITHUB_PAT is missing from environment variables!");
         return NextResponse.json({ status: "error", message: "Missing PAT" }, { status: 500 });
@@ -39,7 +65,7 @@ export async function POST(request: Request) {
           'User-Agent': 'News-Crawler-Webhook',
           'X-GitHub-Api-Version': '2022-11-28',
         },
-        body: JSON.stringify({ ref: 'main' }),
+        body: JSON.stringify({ ref: 'master' }),
       });
 
       if (!ghResponse.ok) {
@@ -49,7 +75,6 @@ export async function POST(request: Request) {
       }
 
       // User Feedback: Acknowledge the command via Telegram API
-      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
       if (tgToken) {
         await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
           method: 'POST',

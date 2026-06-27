@@ -37,8 +37,8 @@ export async function sendRichNotifications(
     facts
   });
 
-  // Only send High-value Article Alerts (>85 score) to Discord
-  if (webhookUrl && hypeScore > 85) {
+  // Send Article Alerts to Discord
+  if (webhookUrl) {
     // Dynamic Colors based on Category
     let color = 5814783; // default
     if (category.includes('Corporate')) color = 0x1E40AF; // Deep Blue
