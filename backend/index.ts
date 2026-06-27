@@ -35,13 +35,30 @@ function isValidArticle(markdown: string): boolean {
   return true;
 }
 
+// Telemetry Logger
+async function logTelemetry(eventType: string, targetUrl: string | null, serviceUsed: string, tokensUsed: number) {
+  try {
+    await supabase.from('agent_logs').insert({
+      event_type: eventType,
+      target_url: targetUrl,
+      service_used: serviceUsed,
+      tokens_or_credits_used: tokensUsed
+    });
+  } catch (e) {
+    console.error("Failed to log telemetry:", e);
+  }
+}
+
 async function runTest() {
-  console.log("Starting Phase 6 Corporate-Tech Intelligence Pipeline...");
-  let articlesToProcess: { title: string, link: string }[] = [];
+  console.log("Starting Phase 7 Premium Pipeline...");
+  
+  // Notice we added published_date and image_url to our internal schema!
+  let articlesToProcess: { title: string, link: string, published_date?: string, image_url?: string }[] = [];
 
   // --- 1A. AGENTIC SEARCH (Exa AI) ---
   console.log("\n[1A] Running Exa AI Agentic Search...");
   try {
+    await logTelemetry('api_usage', null, 'Exa', 1);
     const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
     const exaResponse = await exa.search("breaking tech news, major framework releases, and trending AI developments", {
       type: "neural",
@@ -50,10 +67,11 @@ async function runTest() {
       startPublishedDate: fourHoursAgo
     });
     
-    exaResponse.results.forEach(result => {
+    exaResponse.results.forEach((result: any) => {
       articlesToProcess.push({
         title: result.title || "Exa Discovered Article",
-        link: result.url
+        link: result.url,
+        published_date: result.publishedDate
       });
     });
     console.log(`Exa AI found ${exaResponse.results.length} recent articles!`);
@@ -72,7 +90,8 @@ async function runTest() {
       if (latestItem && latestItem.link) {
         articlesToProcess.push({
           title: latestItem.title || "Unknown Title",
-          link: latestItem.link
+          link: latestItem.link,
+          published_date: latestItem.isoDate || latestItem.pubDate
         });
       }
     } catch (error) {
@@ -84,6 +103,7 @@ async function runTest() {
   console.log("\n[1E] Running Tavily AI Corporate Discovery...");
   for (const query of CORPORATE_QUERIES) {
     try {
+      await logTelemetry('api_usage', null, 'Tavily', 1);
       const tavilyResponse = await tvly.search(query, {
         searchDepth: "basic",
         timeRange: "d", 
@@ -93,7 +113,8 @@ async function runTest() {
       tavilyResponse.results.forEach((result: any) => {
         articlesToProcess.push({
           title: result.title || "Tavily Discovered Article",
-          link: result.url
+          link: result.url,
+          published_date: new Date().toISOString() // Tavily basic search doesn't explicitly return ISO date easily, using now as fallback
         });
       });
     } catch (error: any) {
@@ -126,6 +147,7 @@ async function runTest() {
   // --- 1D. EXA AI GITHUB FILTERING ---
   console.log("\n[1D] Running Exa AI Repo Search...");
   try {
+    await logTelemetry('api_usage', null, 'Exa-Social', 1);
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const socialResponse = await exa.search("trending AI releases, major web framework updates, developer discussions", {
       type: "neural",
@@ -164,8 +186,11 @@ async function runTest() {
       }
       
       let markdownContent = "";
+      let heroImage = article.image_url || null;
+
       try {
         console.log("Extracting content with Jina AI...");
+        await logTelemetry('crawl_attempt', article.link, 'Jina', 0);
         const jinaUrl = `https://r.jina.ai/${article.link}`;
         const response = await axios.get(jinaUrl, { timeout: 10000 });
         markdownContent = response.data;
@@ -174,6 +199,7 @@ async function runTest() {
         console.log(`Jina extraction failed or was blocked. Falling back to Firecrawl deep scrape...`);
         
         try {
+          await logTelemetry('crawl_attempt', article.link, 'Firecrawl', 1);
           const firecrawlUrl = 'https://api.firecrawl.dev/v1/scrape';
           const firecrawlResponse = await axios.post(
             firecrawlUrl,
@@ -188,19 +214,33 @@ async function runTest() {
           
           if (firecrawlResponse.data && firecrawlResponse.data.success) {
             markdownContent = firecrawlResponse.data.data.markdown;
+            // Extract Firecrawl Metadata Image
+            if (firecrawlResponse.data.data.metadata && firecrawlResponse.data.data.metadata.ogImage) {
+              heroImage = firecrawlResponse.data.data.metadata.ogImage;
+            }
             console.log("Firecrawl deep scrape successful! 🚀");
           } else {
             throw new Error("Firecrawl returned unsuccessful response.");
           }
         } catch (firecrawlError: any) {
           console.log(`Firecrawl fallback failed too. Skipping this article.`);
+          await logTelemetry('blocked', article.link, 'Firecrawl', 1);
           continue; 
         }
       }
 
       if (!isValidArticle(markdownContent)) {
         console.log("Security wall detected in markdown, aborting article.");
+        await logTelemetry('blocked', article.link, 'Jina', 0);
         continue;
+      }
+
+      // If we don't have a heroImage yet, use regex to pull the first image from markdown!
+      if (!heroImage) {
+        const imageMatch = markdownContent.match(/!\[.*?\]\((.*?)\)/);
+        if (imageMatch && imageMatch[1] && !imageMatch[1].includes('data:image')) {
+           heroImage = imageMatch[1];
+        }
       }
       
       console.log("Extracting facts with Groq (Llama 3.3)...");
@@ -215,6 +255,9 @@ async function runTest() {
         model: 'llama-3.3-70b-versatile',
         response_format: { type: 'json_object' }
       });
+
+      // Log Token Usage
+      await logTelemetry('api_usage', article.link, 'Groq-Extract', extractionResponse.usage?.total_tokens || 0);
       
       let facts = [];
       try {
@@ -261,6 +304,8 @@ async function runTest() {
         model: 'llama-3.3-70b-versatile',
         response_format: { type: 'json_object' }
       });
+
+      await logTelemetry('api_usage', article.link, 'Groq-Verify', groqResponse.usage?.total_tokens || 0);
       
       const verification = JSON.parse(groqResponse.choices[0]?.message?.content || "{}");
       const trustScore = verification.trust_score || 0;
@@ -269,7 +314,7 @@ async function runTest() {
       const category = verification.category || "[Technical]";
       const impactSummary = verification.impact_summary || "No clear impact identified.";
       
-      console.log(`Saving to Supabase (Category: ${category}, Trust: ${trustScore}, Hype: ${hypeScore})...`);
+      console.log(`Saving to Supabase (Category: ${category}, Trust: ${trustScore}, Image Found: ${!!heroImage})...`);
       const { error } = await supabase.from('curated_news').insert({
         title: article.title,
         url: article.link,
@@ -279,51 +324,15 @@ async function runTest() {
         hype_score: hypeScore,
         sentiment: sentiment,
         category: category,
-        impact_summary: impactSummary
+        impact_summary: impactSummary,
+        image_url: heroImage,
+        published_date: article.published_date || new Date().toISOString()
       });
       
       if (error) {
         console.error("Error saving to Supabase:", error);
       } else {
         console.log("Successfully saved to Supabase!");
-      }
-
-      if (trustScore > 85) {
-        console.log("Trust score > 85! Sending Discord and Telegram alerts...");
-        const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-        if (webhookUrl) {
-          try {
-            await axios.post(webhookUrl, {
-              embeds: [{
-                title: `${category} ${article.title}`,
-                url: article.link,
-                color: category === '[Corporate/Business]' ? 16753920 : 5814783,
-                description: impactSummary,
-                fields: [
-                  { name: "Trust Score", value: `⭐ ${trustScore}/100`, inline: true },
-                  { name: "Hype Score", value: `🔥 ${hypeScore}/100`, inline: true },
-                  { name: "Sentiment", value: `💬 ${sentiment}`, inline: true },
-                  { name: "Key Facts", value: facts.map((f: string) => `• ${f}`).join('\n').substring(0, 1024) }
-                ],
-                footer: { text: "Verified by Groq (Llama 3.3)" },
-                timestamp: new Date().toISOString()
-              }]
-            });
-            console.log("Discord alert sent!");
-          } catch (e) { console.error("Failed to send Discord alert."); }
-        }
-
-        const tgToken = process.env.TELEGRAM_BOT_TOKEN;
-        const tgChatId = process.env.TELEGRAM_CHAT_ID;
-        if (tgToken && tgChatId) {
-          try {
-            const textMessage = `*🚀 ${category} [${article.title}](${article.link})*\n\n⭐ *Trust Score:* ${trustScore}/100 | 🔥 *Hype Score:* ${hypeScore}/100 | 💬 *Sentiment:* ${sentiment}\n\n*Impact:* ${impactSummary}\n\n_Verified by Groq_`;
-            await axios.post(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
-              chat_id: tgChatId, text: textMessage, parse_mode: "Markdown"
-            });
-            console.log("Telegram alert sent!");
-          } catch (e) { console.error("Failed to send Telegram alert."); }
-        }
       }
       
     } catch (error) {
@@ -332,7 +341,7 @@ async function runTest() {
   }
   
   console.log("\n========================================");
-  console.log("Phase 6 Backend pipeline complete!");
+  console.log("Phase 7 Backend pipeline complete!");
 }
 
 runTest();
