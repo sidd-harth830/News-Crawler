@@ -7,8 +7,18 @@ import { tavily } from '@tavily/core';
 import ytSearch from 'yt-search';
 import { YoutubeTranscript } from 'youtube-transcript';
 import { GoogleGenAI } from '@google/genai';
-import { sendRichNotifications, sendAuditLog, sendBatchTelegram } from './notifier';
+import { sendRichNotifications, sendAuditLog, sendBatchTelegram, sendApiExhaustedAlert } from './notifier';
 import 'dotenv/config';
+
+let errorLogs: string[] = [];
+async function handleApiError(serviceName: string, error: any) {
+    const status = error?.status || error?.response?.status;
+    const msg = error?.message || String(error);
+    if (status === 429 || status === 402 || status === 403) {
+        await sendApiExhaustedAlert(serviceName, msg);
+    }
+    errorLogs.push(`[${serviceName}] ${msg}`);
+}
 
 const parser = new Parser();
 
@@ -61,6 +71,11 @@ async function runTest() {
   let websitesVisited = 0;
   let blockedSites = 0;
   let tokensUsed = 0;
+  let exaQueries = 0;
+  let tavilyQueries = 0;
+  let firecrawlCreditsUsed = 0;
+  let successfulIngests: string[] = [];
+  errorLogs = [];
 
   // Notice we added published_date, image_url, and preFetchedContent to our internal schema!
   let articlesToProcess: { title: string, link: string, published_date?: string, image_url?: string, preFetchedContent?: string, isSocial?: boolean, video_metadata?: any }[] = [];
@@ -69,6 +84,7 @@ async function runTest() {
   if (searchTasks.includes('1A')) {
     console.log("\n[1A] Running Exa AI Agentic Search...");
     try {
+      exaQueries++;
       await logTelemetry('api_usage', null, 'Exa', 1);
       const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
       const exaResponse = await exa.search("breaking tech news, major framework releases, and trending AI developments", {
@@ -86,8 +102,9 @@ async function runTest() {
         });
       });
       console.log(`Exa AI found ${exaResponse.results.length} recent articles!`);
-    } catch (error) {
-      console.error("Exa AI Search failed:", error);
+    } catch (error: any) {
+      console.error("Exa AI Search failed:", error.message);
+      await handleApiError("Exa AI", error);
     }
   }
 
@@ -116,6 +133,7 @@ async function runTest() {
     console.log("\n[1E] Running Tavily AI Corporate Discovery...");
     const query = CORPORATE_QUERIES[Math.floor(Math.random() * CORPORATE_QUERIES.length)];
     try {
+      tavilyQueries++;
       await logTelemetry('api_usage', null, 'Tavily', 1);
       const tavilyResponse = await tvly.search(query, {
         searchDepth: "basic",
@@ -132,6 +150,7 @@ async function runTest() {
       });
     } catch (error: any) {
       console.error(`Tavily Search failed for query ${query}:`, error.message);
+      await handleApiError("Tavily AI", error);
     }
   }
 
@@ -161,6 +180,7 @@ async function runTest() {
   if (searchTasks.includes('1D')) {
     console.log("\n[1D] Running Exa AI Repo Search...");
     try {
+      exaQueries++;
       await logTelemetry('api_usage', null, 'Exa-Social', 1);
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const socialResponse = await exa.search("trending AI releases, major web framework updates, developer discussions", {
@@ -175,8 +195,9 @@ async function runTest() {
         globalSocialContext += `[Exa Social] ${result.title || 'Post'} - ${result.url}\n`;
       });
       console.log(`Exa AI found ${socialResponse.results.length} recent social/repo links!`);
-    } catch (error) {
-      console.error("Exa AI Social Search failed:", error);
+    } catch (error: any) {
+      console.error("Exa AI Social Search failed:", error.message);
+      await handleApiError("Exa AI", error);
     }
   }
 
@@ -291,11 +312,13 @@ async function runTest() {
                 }
             } catch (tError: any) {
                 console.log(`Skipping YouTube video ${result.url}: ${tError.message}`);
+                await handleApiError("Gemini / YouTube", tError);
             }
         }
         console.log(`Added ${ytCount} YouTube videos to processing queue.`);
     } catch (error: any) {
         console.error("YouTube Discovery failed:", error.message);
+        await handleApiError("Exa YouTube", error);
     }
   }
 
@@ -367,6 +390,7 @@ async function runTest() {
               } catch (firecrawlError: any) {
                 console.log(`Firecrawl fallback failed too. Skipping this article.`);
                 await logTelemetry('blocked', article.link, 'Firecrawl', 1);
+                await handleApiError("Firecrawl", firecrawlError);
                 continue; 
               }
             } else {
@@ -486,6 +510,7 @@ async function runTest() {
         console.error("Error saving to Supabase:", error);
       } else {
         console.log("Successfully saved to Supabase!");
+        successfulIngests.push(article.title);
         await sendRichNotifications(
           article.title, 
           article.link, 
@@ -499,8 +524,9 @@ async function runTest() {
         );
       }
       
-    } catch (error) {
-      console.error(`Error processing article:`, error);
+    } catch (error: any) {
+      console.error(`Error processing article:`, error.message);
+      await handleApiError("Groq", error);
     }
 
     // Step 2: Rate Throttling
@@ -512,7 +538,7 @@ async function runTest() {
   console.log("\n========================================");
   console.log("Dispatching final batch notifications...");
   await sendBatchTelegram();
-  await sendAuditLog(websitesVisited, blockedSites, tokensUsed);
+  await sendAuditLog(successfulIngests, exaQueries, tavilyQueries, firecrawlCreditsUsed, tokensUsed, errorLogs);
   console.log("All notifications dispatched.");
   console.log("Phase 7 Backend pipeline complete!");
   process.exit(0);
