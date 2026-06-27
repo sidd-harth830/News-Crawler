@@ -135,7 +135,7 @@ export async function sendBatchTelegram() {
 
   for (const a of telegramBatch) {
     try {
-      let html = `<b>📰 Category: ${a.category}</b>\n`;
+      let html = `<b>📰 Category: ${a.category}</b>\n\n`;
       html += `<b>🚀 <a href="${a.url}">${a.title}</a></b>\n`;
       html += `🔥 <i>Hype: ${a.hypeScore} | Sentiment: ${a.sentiment}</i>\n\n`;
       html += `<blockquote>${a.impactSummary}</blockquote>\n\n`;

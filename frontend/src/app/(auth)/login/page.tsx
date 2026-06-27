@@ -9,7 +9,7 @@ export default async function LoginPage({
   const params = await searchParams;
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+    <div className="h-[100dvh] w-full bg-zinc-950 flex flex-col justify-center items-center p-4 relative overflow-hidden">
       {/* Abstract Glowing Background */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-600/10 blur-[120px] rounded-full mix-blend-screen" />

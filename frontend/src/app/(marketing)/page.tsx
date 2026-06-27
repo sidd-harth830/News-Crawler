@@ -1,6 +1,7 @@
 import Logo from '@/app/components/Logo'
 import Link from 'next/link'
 import { ArrowRight, ShieldCheck, Radar, Code2, Sparkles, Zap, Lock, Network } from 'lucide-react'
+import ThemeToggle from '@/app/components/ThemeToggle'
 
 export default function LandingPage() {
   return (
@@ -16,13 +17,14 @@ export default function LandingPage() {
       <div className="absolute inset-0 bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))] pointer-events-none opacity-20" />
 
       {/* Navigation */}
-      <nav className="relative z-50 flex items-center justify-between px-6 py-6 max-w-7xl mx-auto">
+      <nav className="relative z-50 flex items-center justify-between px-6 py-6 max-w-5xl mx-auto">
         <div className="flex items-center gap-3 font-display font-black text-2xl tracking-tight">
           <Logo className="h-8 w-auto drop-shadow-[0_0_15px_rgba(34,211,238,0.8)]" />
           Radar
         </div>
         <div className="flex items-center gap-6 text-sm font-semibold">
-          <Link href="/login" className="text-neutral-400 hover:text-white transition-colors">
+          <ThemeToggle />
+          <Link href="/login" className="text-neutral-400 hover:text-slate-900 dark:hover:text-white transition-colors">
             Terminal Access
           </Link>
           <Link 
@@ -34,14 +36,14 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      <main className="relative z-10 max-w-7xl mx-auto px-6 pt-20 pb-32">
+      <main className="relative z-10 max-w-5xl mx-auto px-6 pt-16 pb-24">
         {/* Hero Section */}
         <section className="flex flex-col items-center text-center mt-12 mb-32">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-sm font-semibold mb-8 backdrop-blur-md">
             <Sparkles className="w-4 h-4" /> Omni-Channel Tech Intelligence
           </div>
           
-          <h1 className="text-6xl md:text-8xl font-display font-black tracking-tighter leading-[1.1] mb-8 max-w-5xl">
+          <h1 className="text-5xl md:text-7xl font-display font-black tracking-tighter leading-[1.1] mb-6 max-w-4xl">
             Command Your <br/>
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-400">
               Information Flow.
@@ -117,8 +119,8 @@ export default function LandingPage() {
 
         {/* How It Works Section */}
         <section className="mt-32">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-display font-black tracking-tighter mb-4">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-display font-black tracking-tighter mb-4">
               How Radar Works
             </h2>
             <p className="text-neutral-400 text-lg max-w-2xl mx-auto">
@@ -150,15 +152,15 @@ export default function LandingPage() {
                 icon: <Zap className="w-6 h-6 text-purple-400" />
               }
             ].map((item, i) => (
-              <div key={i} className="relative z-10 glass rounded-3xl p-8 border border-white/10 text-center flex flex-col items-center group hover:-translate-y-2 transition-transform duration-300">
-                <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(255,255,255,0.05)] group-hover:shadow-[0_0_30px_rgba(255,255,255,0.1)] transition-shadow">
-                  {item.icon}
-                </div>
-                <h3 className="text-xl font-bold font-display mb-2">{item.title}</h3>
-                <p className="text-neutral-400 text-sm leading-relaxed">{item.desc}</p>
-                <div className="absolute -top-4 -right-4 text-6xl font-black font-display text-white/5 pointer-events-none">
+              <div key={i} className="relative z-10 glass rounded-3xl p-8 border border-white/10 text-center flex flex-col items-center group hover:-translate-y-2 transition-transform duration-300 overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 text-5xl font-black font-display text-white/5 pointer-events-none select-none">
                   {item.step}
                 </div>
+                <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-5 shadow-[0_0_30px_rgba(255,255,255,0.05)] group-hover:shadow-[0_0_30px_rgba(255,255,255,0.1)] transition-shadow">
+                  {item.icon}
+                </div>
+                <h3 className="text-lg font-bold font-display mb-2">{item.title}</h3>
+                <p className="text-neutral-400 text-sm leading-relaxed">{item.desc}</p>
               </div>
             ))}
           </div>
@@ -167,18 +169,13 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="border-t border-white/10 bg-black/50 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-6 py-12 flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3 font-display font-black text-xl tracking-tight text-white/50">
             <Logo className="h-6 w-auto opacity-50" />
             Radar
           </div>
-          <div className="text-neutral-600 text-sm">
+          <div className="text-neutral-600 text-sm font-medium">
             © 2026 Radar Intelligence. All rights reserved.
-          </div>
-          <div className="flex items-center gap-6 text-sm font-medium text-neutral-500">
-            <Link href="#" className="hover:text-white transition-colors">Privacy</Link>
-            <Link href="#" className="hover:text-white transition-colors">Terms</Link>
-            <Link href="#" className="hover:text-white transition-colors">Status</Link>
           </div>
         </div>
       </footer>

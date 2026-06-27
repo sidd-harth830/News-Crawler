@@ -49,3 +49,9 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_LOADING_MSG_ID: ${{ github.event.inputs.loading_message_id }}
         run: npm start
+
+      - name: Report Pipeline Failure
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" -d '{"content":"🚨 **CRITICAL PIPELINE CRASH** - The GitHub Actions workflow failed at the environment level! Please inspect the logs immediately."}' ${{ secrets.DISCORD_CRASH_WEBHOOK_URL }}
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} -d parse_mode=HTML -d text="🚨 <b>Category: Critical Pipeline Crash</b> - The GitHub Actions runner failed."

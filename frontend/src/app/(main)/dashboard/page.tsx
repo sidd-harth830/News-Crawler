@@ -4,7 +4,7 @@ import Link from 'next/link';
 import FeedClient from '@/app/components/FeedClient';
 import PipelineConsole from '@/app/components/PipelineConsole';
 
-import TelemetryAccordion from '@/app/components/TelemetryAccordion';
+import TelemetryModal from '@/app/components/TelemetryModal';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -25,6 +25,7 @@ export default async function Home({ searchParams }: { searchParams: { page?: st
     .from('curated_news')
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })
+    .order('id', { ascending: true })
     .range(start, end);
 
   const totalPages = count ? Math.ceil(count / limit) : 1;
@@ -44,7 +45,7 @@ export default async function Home({ searchParams }: { searchParams: { page?: st
       <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-100/50 dark:from-indigo-900/10 via-transparent dark:via-neutral-950 to-transparent dark:to-neutral-950 pointer-events-none transition-colors duration-300" />
       
       <main className="relative z-10 w-full px-4 md:px-12 xl:px-24 py-12">
-        <header className="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6 max-w-7xl mx-auto">
+        <header className="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6 max-w-screen-2xl mx-auto">
           <div>
             <h1 className="text-5xl font-black tracking-tight bg-gradient-to-r from-indigo-600 to-cyan-600 dark:from-indigo-400 dark:to-cyan-400 bg-clip-text text-transparent mb-4 font-display">
               Omni-Channel Tech Radar
@@ -55,55 +56,7 @@ export default async function Home({ searchParams }: { searchParams: { page?: st
             </p>
           </div>
           
-          <Link 
-            href="/analytics" 
-            className="group flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-white/5 hover:bg-stone-50 dark:hover:bg-white/10 border border-stone-200 dark:border-white/10 rounded-xl transition-all shadow-sm dark:shadow-none"
-          >
-            <BarChart3 className="w-5 h-5 text-indigo-500 dark:text-indigo-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-300" />
-            <span className="font-semibold text-slate-700 dark:text-neutral-300 group-hover:text-slate-900 dark:group-hover:text-white">Telemetry Dashboard</span>
-          </Link>
-        </header>
-
-        <div className="max-w-7xl mx-auto">
-          
-          <div>
-            <h2 className="text-2xl font-bold font-display text-slate-900 dark:text-white mb-6 border-b border-stone-200 dark:border-white/10 pb-4">Latest Curated Intelligence</h2>
-            <FeedClient 
-              articles={articles || []} 
-              initialArticleId={params?.articleId as string | undefined}
-            />
-            
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-              <div className="mt-12 flex items-center justify-center gap-4">
-                {page > 1 ? (
-                  <Link href={`/dashboard?page=${page - 1}`} className="p-2 rounded-lg bg-white dark:bg-white/5 hover:bg-stone-50 dark:hover:bg-white/10 border border-stone-200 dark:border-white/10 text-slate-700 dark:text-white transition-colors shadow-sm dark:shadow-none">
-                    <ChevronLeft className="w-6 h-6" />
-                  </Link>
-                ) : (
-                  <div className="p-2 rounded-lg bg-stone-100 dark:bg-white/5 border border-stone-200 dark:border-white/5 text-slate-400 dark:text-neutral-600 cursor-not-allowed">
-                    <ChevronLeft className="w-6 h-6" />
-                  </div>
-                )}
-                
-                <span className="text-slate-500 dark:text-neutral-400 font-medium">
-                  Page {page} of {totalPages}
-                </span>
-
-                {page < totalPages ? (
-                  <Link href={`/dashboard?page=${page + 1}`} className="p-2 rounded-lg bg-white dark:bg-white/5 hover:bg-stone-50 dark:hover:bg-white/10 border border-stone-200 dark:border-white/10 text-slate-700 dark:text-white transition-colors shadow-sm dark:shadow-none">
-                    <ChevronRight className="w-6 h-6" />
-                  </Link>
-                ) : (
-                  <div className="p-2 rounded-lg bg-stone-100 dark:bg-white/5 border border-stone-200 dark:border-white/5 text-slate-400 dark:text-neutral-600 cursor-not-allowed">
-                    <ChevronRight className="w-6 h-6" />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <TelemetryAccordion>
+          <TelemetryModal>
             {/* Daily Briefing Banner */}
             {briefing && page === 1 && (
               <div className="mb-12 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 rounded-3xl p-6 sm:p-10 relative overflow-hidden group shadow-sm dark:shadow-none">
@@ -136,7 +89,22 @@ export default async function Home({ searchParams }: { searchParams: { page?: st
             <div className="mb-12 border border-stone-200 dark:border-white/10 rounded-2xl overflow-hidden bg-white dark:bg-transparent shadow-sm dark:shadow-none">
               <PipelineConsole />
             </div>
-          </TelemetryAccordion>
+          </TelemetryModal>
+        </header>
+
+        <div className="max-w-screen-2xl mx-auto">
+          
+          <div>
+            <h2 className="text-2xl font-bold font-display text-slate-900 dark:text-white mb-6 border-b border-stone-200 dark:border-white/10 pb-4">Latest Curated Intelligence</h2>
+            <FeedClient 
+              articles={articles || []} 
+              initialArticleId={params?.articleId as string | undefined}
+            />
+            
+
+          </div>
+
+
 
         </div>
       </main>

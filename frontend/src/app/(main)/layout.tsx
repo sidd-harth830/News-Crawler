@@ -66,10 +66,10 @@ export default async function MainLayout({
             
             {/* User Profile / Sign Out */}
             <div className="flex items-center gap-4 border-l border-stone-200 dark:border-white/10 pl-6 ml-2">
-              <div className="hidden sm:flex items-center gap-2 text-sm text-slate-500 dark:text-neutral-400 font-medium">
+              <Link href="/profile" className="hidden sm:flex items-center gap-2 text-sm text-slate-500 dark:text-neutral-400 font-medium hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
                 <User className="w-4 h-4" />
                 <span className="max-w-[120px] truncate">{user?.email}</span>
-              </div>
+              </Link>
               <ThemeToggle />
               <form action={signOut}>
                 <button className="p-2 rounded-lg bg-red-100 dark:bg-red-500/10 text-red-500 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/20 hover:text-red-600 dark:hover:text-red-300 transition-colors" title="Sign Out">
@@ -81,7 +81,7 @@ export default async function MainLayout({
         </div>
       </nav>
       
-      <main className="pt-16 max-w-7xl mx-auto">
+      <main className="pt-16 max-w-screen-2xl mx-auto">
         {children}
       </main>
     </div>

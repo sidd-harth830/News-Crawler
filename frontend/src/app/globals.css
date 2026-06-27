@@ -11,6 +11,8 @@
   --font-display: 'Acorn', var(--font-outfit), serif;
 }
 
+@custom-variant dark (&:is(.dark *));
+
 /* Premium Aceternity Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
