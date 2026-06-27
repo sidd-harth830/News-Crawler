@@ -298,8 +298,12 @@ async function runTest() {
                     } else {
                         console.log(`Skipping YouTube video ${result.url}: ${primaryError.message}`);
                         await handleApiError("Gemini / YouTube", primaryError);
-                    }
                 }
+            }
+
+            if (!rawTranscript) {
+                console.log(`Skipping ${result.url} - No transcript available for extraction.`);
+                continue;
             }
 
             // Generate AI Summary if we got transcript

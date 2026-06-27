@@ -77,6 +77,10 @@ export default function FeedCard({ article, onClick }: { article: any, onClick: 
                   {new Date(article.published_date || article.created_at).toLocaleDateString('en-US', {
                     month: 'short', day: 'numeric', year: 'numeric'
                   })}
+                  <span className="text-neutral-600 mx-1">•</span>
+                  <span className="text-neutral-500 font-mono text-xs">
+                    Received: {new Date(article.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  </span>
                 </div>
                 {article.sentiment && (
                   <div className="flex items-center gap-1.5 text-neutral-300 bg-white/5 px-2.5 py-1 rounded-md border border-white/10">

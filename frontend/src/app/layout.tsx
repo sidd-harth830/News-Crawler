@@ -37,7 +37,6 @@ export default function RootLayout({
             <div className="flex items-center gap-6 text-sm font-semibold text-neutral-400">
               <a href="/" className="hover:text-white transition-colors">Feed</a>
               <a href="/social" className="hover:text-orange-400 transition-colors">Social Hub</a>
-              <a href="/watch" className="hover:text-red-500 transition-colors">Cinematic Hub</a>
               <a href="/analytics" className="hover:text-indigo-400 transition-colors">Analytics</a>
               <a href="/audit" className="hover:text-emerald-400 transition-colors">Audit Hub</a>
               <a href="/vault" className="hover:text-amber-400 transition-colors flex items-center gap-1.5"><Bookmark className="w-4 h-4" /> Vault</a>
