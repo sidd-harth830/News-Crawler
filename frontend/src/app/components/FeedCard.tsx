@@ -1,9 +1,22 @@
 "use client";
 
 import { Calendar, ShieldCheck, Flame, MessageCircle } from 'lucide-react';
+import { useState, useRef, MouseEvent } from 'react';
 
 export default function FeedCard({ article, onClick }: { article: any, onClick: () => void }) {
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [isHovered, setIsHovered] = useState(false);
+  const cardRef = useRef<HTMLElement>(null);
   
+  const handleMouseMove = (e: MouseEvent<HTMLElement>) => {
+    if (!cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    setMousePosition({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+  };
+
   const getCategoryColor = (cat: string) => {
     if (cat === '[Corporate/Business]') return 'text-amber-400 border-amber-400/20 bg-amber-400/10';
     if (cat === '[Macro-Trend]') return 'text-emerald-400 border-emerald-400/20 bg-emerald-400/10';
@@ -12,12 +25,25 @@ export default function FeedCard({ article, onClick }: { article: any, onClick: 
 
   return (
     <article 
+      ref={cardRef}
       onClick={onClick}
-      className="group relative p-[1px] rounded-2xl bg-gradient-to-b from-white/10 to-transparent hover:from-white/20 transition-all duration-300 cursor-pointer overflow-hidden"
+      onMouseMove={handleMouseMove}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className="group relative p-[1px] rounded-2xl bg-gradient-to-b from-white/10 to-white/5 transition-all duration-300 cursor-pointer overflow-hidden shadow-2xl shadow-black/20"
     >
-      <div className="absolute inset-0 bg-indigo-500/10 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+      {/* Dynamic Spotlight Glow */}
+      <div 
+        className="absolute inset-0 z-0 transition-opacity duration-300"
+        style={{
+          background: isHovered 
+            ? `radial-gradient(800px circle at ${mousePosition.x}px ${mousePosition.y}px, rgba(99, 102, 241, 0.15), transparent 40%)` 
+            : 'transparent',
+          opacity: isHovered ? 1 : 0
+        }}
+      />
       
-      <div className="relative h-full bg-neutral-900/90 backdrop-blur-xl border border-white/5 rounded-[15px] overflow-hidden">
+      <div className="relative z-10 h-full glass rounded-[15px] overflow-hidden pointer-events-none">
         
         {/* Sleek Banner Image */}
         {article.image_url && (

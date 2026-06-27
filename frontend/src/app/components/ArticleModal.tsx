@@ -12,7 +12,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function ArticleModal({ article, onClose }: { article: any, onClose: () => void }) {
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isBookmarked, setIsBookmarked] = useState(article.is_bookmarked || false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
 
@@ -20,8 +20,20 @@ export default function ArticleModal({ article, onClose }: { article: any, onClo
   useEffect(() => {
     setMounted(true);
     document.body.style.overflow = 'hidden';
+    
+    // Check localStorage for bookmark status safely
+    try {
+      const savedRaw = localStorage.getItem('bookmarked_articles');
+      const saved = savedRaw ? JSON.parse(savedRaw) : [];
+      if (Array.isArray(saved) && saved.some((a: any) => a.id === article.id)) {
+        setIsBookmarked(true);
+      }
+    } catch (err) {
+      console.error("Failed to parse bookmarks:", err);
+    }
+
     return () => { document.body.style.overflow = 'unset'; };
-  }, []);
+  }, [article.id]);
 
   // Handle escape key to close modal
   useEffect(() => {
@@ -36,7 +48,23 @@ export default function ArticleModal({ article, onClose }: { article: any, onClo
     e.stopPropagation();
     const newState = !isBookmarked;
     setIsBookmarked(newState);
-    await supabase.from('curated_news').update({ is_bookmarked: newState }).eq('id', article.id);
+    
+    try {
+      const savedRaw = localStorage.getItem('bookmarked_articles');
+      let saved = savedRaw ? JSON.parse(savedRaw) : [];
+      if (!Array.isArray(saved)) saved = [];
+      
+      if (newState) {
+        if (!saved.some((a: any) => a.id === article.id)) {
+          saved.push(article);
+        }
+      } else {
+        saved = saved.filter((a: any) => a.id !== article.id);
+      }
+      localStorage.setItem('bookmarked_articles', JSON.stringify(saved));
+    } catch (err) {
+      console.error("Failed to save bookmark:", err);
+    }
     router.refresh();
   };
 

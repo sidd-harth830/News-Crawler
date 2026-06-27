@@ -20,7 +20,7 @@ export default async function SocialHub({ searchParams }: { searchParams: { page
   const { data: articles, count } = await supabase
     .from('curated_news')
     .select('*', { count: 'exact' })
-    .or('link.ilike.%reddit.com%,link.ilike.%github.com%,link.ilike.%x.com%,link.ilike.%twitter.com%')
+    .or('url.ilike.%reddit.com%,url.ilike.%github.com%,url.ilike.%x.com%,url.ilike.%twitter.com%')
     .order('created_at', { ascending: false })
     .range(start, end);
 

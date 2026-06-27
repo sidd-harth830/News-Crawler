@@ -4,7 +4,10 @@ import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
 import Exa from 'exa-js';
 import { tavily } from '@tavily/core';
-import { sendRichNotifications } from './notifier';
+import ytSearch from 'yt-search';
+import { YoutubeTranscript } from 'youtube-transcript';
+import { GoogleGenAI } from '@google/genai';
+import { sendRichNotifications, sendAuditLog, sendBatchTelegram } from './notifier';
 import 'dotenv/config';
 
 const parser = new Parser();
@@ -53,31 +56,39 @@ async function logTelemetry(eventType: string, targetUrl: string | null, service
 async function runTest() {
   console.log("Starting Phase 7 Premium Pipeline...");
   
-  // Notice we added published_date and image_url to our internal schema!
-  let articlesToProcess: { title: string, link: string, published_date?: string, image_url?: string }[] = [];
+  const searchTasks = ['1A', '1E', '1D', '1H'].sort(() => 0.5 - Math.random()).slice(0, 2);
+  let firecrawlBudget = 3;
+  let websitesVisited = 0;
+  let blockedSites = 0;
+  let tokensUsed = 0;
+
+  // Notice we added published_date, image_url, and preFetchedContent to our internal schema!
+  let articlesToProcess: { title: string, link: string, published_date?: string, image_url?: string, preFetchedContent?: string, isSocial?: boolean, video_metadata?: any }[] = [];
 
   // --- 1A. AGENTIC SEARCH (Exa AI) ---
-  console.log("\n[1A] Running Exa AI Agentic Search...");
-  try {
-    await logTelemetry('api_usage', null, 'Exa', 1);
-    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
-    const exaResponse = await exa.search("breaking tech news, major framework releases, and trending AI developments", {
-      type: "neural",
-      useAutoprompt: true,
-      numResults: 3,
-      startPublishedDate: fourHoursAgo
-    });
-    
-    exaResponse.results.forEach((result: any) => {
-      articlesToProcess.push({
-        title: result.title || "Exa Discovered Article",
-        link: result.url,
-        published_date: result.publishedDate
+  if (searchTasks.includes('1A')) {
+    console.log("\n[1A] Running Exa AI Agentic Search...");
+    try {
+      await logTelemetry('api_usage', null, 'Exa', 1);
+      const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+      const exaResponse = await exa.search("breaking tech news, major framework releases, and trending AI developments", {
+        type: "neural",
+        useAutoprompt: true,
+        numResults: 3,
+        startPublishedDate: fourHoursAgo
       });
-    });
-    console.log(`Exa AI found ${exaResponse.results.length} recent articles!`);
-  } catch (error) {
-    console.error("Exa AI Search failed:", error);
+      
+      exaResponse.results.forEach((result: any) => {
+        articlesToProcess.push({
+          title: result.title || "Exa Discovered Article",
+          link: result.url,
+          published_date: result.publishedDate
+        });
+      });
+      console.log(`Exa AI found ${exaResponse.results.length} recent articles!`);
+    } catch (error) {
+      console.error("Exa AI Search failed:", error);
+    }
   }
 
   // --- 1B. DYNAMIC GOOGLE NEWS RSS ---
@@ -101,8 +112,9 @@ async function runTest() {
   }
 
   // --- 1E. TAVILY CORPORATE SEARCH ---
-  console.log("\n[1E] Running Tavily AI Corporate Discovery...");
-  for (const query of CORPORATE_QUERIES) {
+  if (searchTasks.includes('1E')) {
+    console.log("\n[1E] Running Tavily AI Corporate Discovery...");
+    const query = CORPORATE_QUERIES[Math.floor(Math.random() * CORPORATE_QUERIES.length)];
     try {
       await logTelemetry('api_usage', null, 'Tavily', 1);
       const tavilyResponse = await tvly.search(query, {
@@ -146,27 +158,148 @@ async function runTest() {
   }
 
   // --- 1D. EXA AI GITHUB FILTERING ---
-  console.log("\n[1D] Running Exa AI Repo Search...");
-  try {
-    await logTelemetry('api_usage', null, 'Exa-Social', 1);
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const socialResponse = await exa.search("trending AI releases, major web framework updates, developer discussions", {
-      type: "neural",
-      useAutoprompt: true,
-      numResults: 5,
-      includeDomains: ['github.com', 'news.ycombinator.com'],
-      startPublishedDate: oneDayAgo
-    });
-    
-    socialResponse.results.forEach(result => {
-      globalSocialContext += `[Exa Social] ${result.title || 'Post'} - ${result.url}\n`;
-    });
-    console.log(`Exa AI found ${socialResponse.results.length} recent social/repo links!`);
-  } catch (error) {
-    console.error("Exa AI Social Search failed:", error);
+  if (searchTasks.includes('1D')) {
+    console.log("\n[1D] Running Exa AI Repo Search...");
+    try {
+      await logTelemetry('api_usage', null, 'Exa-Social', 1);
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const socialResponse = await exa.search("trending AI releases, major web framework updates, developer discussions", {
+        type: "neural",
+        useAutoprompt: true,
+        numResults: 5,
+        includeDomains: ['github.com', 'news.ycombinator.com'],
+        startPublishedDate: oneDayAgo
+      });
+      
+      socialResponse.results.forEach(result => {
+        globalSocialContext += `[Exa Social] ${result.title || 'Post'} - ${result.url}\n`;
+      });
+      console.log(`Exa AI found ${socialResponse.results.length} recent social/repo links!`);
+    } catch (error) {
+      console.error("Exa AI Social Search failed:", error);
+    }
   }
 
   console.log(`\nTotal Articles Queued for Processing: ${articlesToProcess.length}`);
+
+  // --- 1F. HACKER NEWS FIREBASE PIPELINE ---
+  console.log("\n[1F] Fetching top stories from Hacker News Firebase API...");
+  try {
+      const topStoriesRes = await axios.get("https://hacker-news.firebaseio.com/v0/topstories.json");
+      const topStoryIds = topStoriesRes.data.slice(0, 3);
+      for (const id of topStoryIds) {
+          const storyRes = await axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
+          const story = storyRes.data;
+          if (story && story.url) {
+              articlesToProcess.push({
+                  title: story.title || "Hacker News Article",
+                  link: story.url,
+                  published_date: story.time ? new Date(story.time * 1000).toISOString() : new Date().toISOString()
+              });
+          }
+      }
+      console.log(`Added ${topStoryIds.length} Hacker News stories to processing queue.`);
+  } catch(e: any) {
+      console.error("Hacker News API failed:", e.message);
+  }
+
+  // --- 1G. BLUESKY AT PROTOCOL INGESTION ---
+  console.log("\n[1G] Fetching live posts from Bluesky API...");
+  try {
+      const bskyQuery = encodeURIComponent("AI OR web development");
+      const bskyRes = await axios.get(`https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${bskyQuery}&limit=3`);
+      const posts = bskyRes.data.posts || [];
+      for (const post of posts) {
+          const author = post.author?.handle || "Unknown";
+          const text = post.record?.text || "";
+          const link = `https://bsky.app/profile/${author}/post/${post.uri.split('/').pop()}`;
+          
+          globalSocialContext += `[Bluesky @${author}] ${text.substring(0, 100)}\n`;
+          
+          articlesToProcess.push({
+              title: `Bluesky Insight by @${author}`,
+              link: link,
+              published_date: post.record?.createdAt || new Date().toISOString(),
+              preFetchedContent: text,
+              isSocial: true
+          });
+      }
+      console.log(`Added ${posts.length} Bluesky posts to processing queue.`);
+  } catch(e: any) {
+      console.error("Bluesky API failed:", e.message);
+  }
+
+  // --- 1H. AUTONOMOUS YOUTUBE DISCOVERY ---
+  if (searchTasks.includes('1H')) {
+    console.log("\n[1H] Searching YouTube via Exa AI...");
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const ytResponse = await exa.search("tech announcements OR AI releases OR coding tutorials", {
+            includeDomains: ["youtube.com"],
+            useAutoprompt: true,
+            startPublishedDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+            numResults: 2
+        });
+        let ytCount = 0;
+        for (const result of ytResponse.results) {
+            try {
+                const transcriptArray = await YoutubeTranscript.fetchTranscript(result.url);
+                if (transcriptArray && transcriptArray.length > 0) {
+                    const rawTranscript = transcriptArray.map((t: any) => t.text).join(' ').substring(0, 50000);
+                    console.log(`Summarizing YouTube Video: ${result.title}...`);
+                    const response = await ai.models.generateContent({
+                        model: 'gemini-2.5-flash',
+                        contents: `You are an elite tech journalist. Analyze the following YouTube video transcript and write a concise, journalistic summary (2-3 paragraphs). Highlight the key announcements, technical details, or tutorials covered. \n\nTranscript: ${rawTranscript}`
+                    });
+  
+                    // Fetch Deep Video Metadata
+                    let videoMetadata = null;
+                    const videoId = result.url.split('v=')[1]?.split('&')[0];
+                    if (videoId) {
+                        try {
+                            const info = await ytSearch({ videoId });
+                            let dislikes = 0;
+                            let likes = 0;
+                            try {
+                                const dislikeRes = await axios.get(`https://returnyoutubedislikeapi.com/votes?videoId=${videoId}`);
+                                dislikes = dislikeRes.data?.dislikes || 0;
+                                likes = dislikeRes.data?.likes || 0;
+                            } catch(e) {}
+                            
+                            videoMetadata = {
+                                channel_name: info.author?.name || "Unknown Channel",
+                                subscriber_count: 0,
+                                likes: likes,
+                                dislikes: dislikes,
+                                comment_count: 0,
+                                video_duration: info.timestamp || "0:00",
+                                publish_date: info.uploadDate || result.publishedDate || new Date().toISOString()
+                            };
+                        } catch(err: any) {
+                            console.log("Failed to fetch deep video stats:", err.message);
+                        }
+                    }
+  
+                    articlesToProcess.push({
+                        title: result.title || "YouTube Discovery",
+                        link: result.url,
+                        published_date: result.publishedDate,
+                        preFetchedContent: response.text,
+                        video_metadata: videoMetadata
+                    });
+                    ytCount++;
+                }
+            } catch (tError: any) {
+                console.log(`Skipping YouTube video ${result.url}: ${tError.message}`);
+            }
+        }
+        console.log(`Added ${ytCount} YouTube videos to processing queue.`);
+    } catch (error: any) {
+        console.error("YouTube Discovery failed:", error.message);
+    }
+  }
+
+  console.log(`\nFinal Total Articles Queued for Processing: ${articlesToProcess.length}`);
 
   // --- PIPELINE PROCESSING ---
   for (const article of articlesToProcess) {
@@ -189,45 +322,58 @@ async function runTest() {
       let markdownContent = "";
       let heroImage = article.image_url || null;
 
-      try {
-        console.log("Extracting content with Jina AI...");
-        await logTelemetry('crawl_attempt', article.link, 'Jina', 0);
-        const jinaUrl = `https://r.jina.ai/${article.link}`;
-        const response = await axios.get(jinaUrl, { timeout: 10000 });
-        markdownContent = response.data;
-        
-      } catch (jinaError: any) {
-        console.log(`Jina extraction failed or was blocked. Falling back to Firecrawl deep scrape...`);
-        
-        try {
-          await logTelemetry('crawl_attempt', article.link, 'Firecrawl', 1);
-          const firecrawlUrl = 'https://api.firecrawl.dev/v1/scrape';
-          const firecrawlResponse = await axios.post(
-            firecrawlUrl,
-            { url: article.link, formats: ['markdown'] },
-            {
-              headers: {
-                'Authorization': `Bearer ${process.env.FIRECRAWL_API_KEY}`,
-                'Content-Type': 'application/json'
+      if (article.preFetchedContent) {
+          console.log("Using pre-fetched content (skipping Jina/Firecrawl)...");
+          markdownContent = article.preFetchedContent;
+      } else {
+          try {
+            console.log("Extracting content with Jina AI...");
+            await logTelemetry('crawl_attempt', article.link, 'Jina', 0);
+            const jinaUrl = `https://r.jina.ai/${article.link}`;
+            const response = await axios.get(jinaUrl, { timeout: 10000 });
+            markdownContent = response.data;
+            
+          } catch (jinaError: any) {
+            console.log(`Jina extraction failed or was blocked.`);
+            blockedSites++;
+            
+            if (firecrawlBudget > 0) {
+              console.log(`Falling back to Firecrawl deep scrape...`);
+              firecrawlBudget--;
+              try {
+                await logTelemetry('crawl_attempt', article.link, 'Firecrawl', 1);
+                const firecrawlUrl = 'https://api.firecrawl.dev/v1/scrape';
+                const firecrawlResponse = await axios.post(
+                  firecrawlUrl,
+                  { url: article.link, formats: ['markdown'] },
+                  {
+                    headers: {
+                      'Authorization': `Bearer ${process.env.FIRECRAWL_API_KEY}`,
+                      'Content-Type': 'application/json'
+                    }
+                  }
+                );
+                
+                if (firecrawlResponse.data && firecrawlResponse.data.success) {
+                  markdownContent = firecrawlResponse.data.data.markdown;
+                  // Extract Firecrawl Metadata Image
+                  if (firecrawlResponse.data.data.metadata && firecrawlResponse.data.data.metadata.ogImage) {
+                    heroImage = firecrawlResponse.data.data.metadata.ogImage;
+                  }
+                  console.log("Firecrawl deep scrape successful! 🚀");
+                } else {
+                  throw new Error("Firecrawl returned unsuccessful response.");
+                }
+              } catch (firecrawlError: any) {
+                console.log(`Firecrawl fallback failed too. Skipping this article.`);
+                await logTelemetry('blocked', article.link, 'Firecrawl', 1);
+                continue; 
               }
+            } else {
+              console.log(`Firecrawl budget exhausted (max 3 fallbacks). Skipping.`);
+              continue;
             }
-          );
-          
-          if (firecrawlResponse.data && firecrawlResponse.data.success) {
-            markdownContent = firecrawlResponse.data.data.markdown;
-            // Extract Firecrawl Metadata Image
-            if (firecrawlResponse.data.data.metadata && firecrawlResponse.data.data.metadata.ogImage) {
-              heroImage = firecrawlResponse.data.data.metadata.ogImage;
-            }
-            console.log("Firecrawl deep scrape successful! 🚀");
-          } else {
-            throw new Error("Firecrawl returned unsuccessful response.");
           }
-        } catch (firecrawlError: any) {
-          console.log(`Firecrawl fallback failed too. Skipping this article.`);
-          await logTelemetry('blocked', article.link, 'Firecrawl', 1);
-          continue; 
-        }
       }
 
       if (!isValidArticle(markdownContent)) {
@@ -306,7 +452,12 @@ async function runTest() {
         response_format: { type: 'json_object' }
       });
 
-      await logTelemetry('api_usage', article.link, 'Groq-Verify', groqResponse.usage?.total_tokens || 0);
+      const verifyTokens = groqResponse.usage?.total_tokens || 0;
+      const extractTokens = extractionResponse.usage?.total_tokens || 0;
+      tokensUsed += (verifyTokens + extractTokens);
+      websitesVisited++;
+
+      await logTelemetry('api_usage', article.link, 'Groq-Verify', verifyTokens);
       
       const verification = JSON.parse(groqResponse.choices[0]?.message?.content || "{}");
       const trustScore = verification.trust_score || 0;
@@ -327,22 +478,44 @@ async function runTest() {
         category: category,
         impact_summary: impactSummary,
         image_url: heroImage,
-        published_date: article.published_date || new Date().toISOString()
+        published_date: article.published_date || new Date().toISOString(),
+        video_metadata: article.video_metadata || null
       });
       
       if (error) {
         console.error("Error saving to Supabase:", error);
       } else {
         console.log("Successfully saved to Supabase!");
+        await sendRichNotifications(
+          article.title, 
+          article.link, 
+          heroImage, 
+          category, 
+          trustScore, 
+          hypeScore, 
+          sentiment, 
+          impactSummary, 
+          facts
+        );
       }
       
     } catch (error) {
       console.error(`Error processing article:`, error);
     }
+
+    // Step 2: Rate Throttling
+    // Delay 2.5 seconds between each article pass to avoid Groq 30 RPM limit
+    console.log("Throttling RPM: Waiting 2.5s before next article...");
+    await new Promise(r => setTimeout(r, 2500));
   }
   
   console.log("\n========================================");
+  console.log("Dispatching final batch notifications...");
+  await sendBatchTelegram();
+  await sendAuditLog(websitesVisited, blockedSites, tokensUsed);
+  console.log("All notifications dispatched.");
   console.log("Phase 7 Backend pipeline complete!");
+  process.exit(0);
 }
 
 runTest();

@@ -2,8 +2,9 @@ name: Omni-Channel Tech Radar Auto-Crawler
 
 on:
   schedule:
-    # Runs every 4 hours
-    - cron: '0 */4 * * *'
+    # Runs exactly every 90 minutes (16 times per day)
+    - cron: '0 0,3,6,9,12,15,18,21 * * *'
+    - cron: '30 1,4,7,10,13,16,19,22 * * *'
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
@@ -20,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: './backend/package-lock.json'
 
@@ -29,10 +30,14 @@ jobs:
 
       - name: Run Tech Radar Pipeline
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_LOGS_WEBHOOK_URL: ${{ secrets.DISCORD_LOGS_WEBHOOK_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: npm start

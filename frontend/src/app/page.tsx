@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Activity, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import FeedClient from './components/FeedClient';
+import PipelineConsole from './components/PipelineConsole';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -130,60 +131,10 @@ export default async function Home({ searchParams }: { searchParams: { page?: st
               )}
             </div>
 
-            {/* Sidebar Column: Technology Momentum Cloud */}
+            {/* Sidebar Column: Live Pipeline Console */}
             <div className="lg:col-span-1 space-y-6">
               <div className="sticky top-24">
-                <h2 className="text-2xl font-bold font-display text-cyan-400 mb-6 border-b border-cyan-500/20 pb-4">Technology Momentum Cloud</h2>
-                
-                <div className="bg-gradient-to-b from-white/5 to-transparent border border-white/10 rounded-2xl p-6">
-                  <p className="text-neutral-400 text-sm mb-6 leading-relaxed">
-                    Live algorithmic extraction of the most hyped entities currently trending across all intercepted intelligence streams.
-                  </p>
-                  
-                  <div className="flex flex-wrap gap-3">
-                    {/* Inline frequency map calculation */}
-                    {(() => {
-                      const text = articles?.map(a => `${a.title} ${a.impact_summary}`).join(' ') || '';
-                      // Extract capitalized words, ignoring common start-of-sentence words
-                      const words = text.match(/\b[A-Z][a-zA-Z0-9-.]+\b/g) || [];
-                      const ignoreList = ['The', 'A', 'An', 'In', 'On', 'At', 'To', 'For', 'With', 'By', 'As', 'This', 'That', 'It', 'Is', 'Are', 'New', 'How', 'Why', 'What', 'When', 'Where'];
-                      
-                      const freq: Record<string, number> = {};
-                      words.forEach(w => {
-                        if (!ignoreList.includes(w) && w.length > 2) {
-                          freq[w] = (freq[w] || 0) + 1;
-                        }
-                      });
-                      
-                      // Sort and take top 25
-                      const topTags = Object.entries(freq)
-                        .sort((a, b) => b[1] - a[1])
-                        .slice(0, 25);
-                        
-                      if (topTags.length === 0) return <span className="text-neutral-500">Awaiting entity data...</span>;
-
-                      return topTags.map(([tag, count], i) => {
-                        // Calculate weight (1 to 5) for visual sizing/opacity
-                        const maxCount = topTags[0][1];
-                        const weight = Math.max(1, Math.ceil((count / maxCount) * 5));
-                        
-                        const sizeClass = weight >= 4 ? 'text-lg font-black' : weight === 3 ? 'text-base font-bold' : 'text-sm font-medium';
-                        const colorClass = weight >= 4 ? 'text-cyan-300' : weight === 3 ? 'text-indigo-300' : 'text-neutral-400';
-                        const bgClass = weight >= 4 ? 'bg-cyan-500/20 border border-cyan-500/30 shadow-[0_0_15px_rgba(34,211,238,0.2)]' : 'bg-white/5 border border-white/10 hover:border-indigo-500/30';
-                        
-                        return (
-                          <span 
-                            key={tag + i} 
-                            className={`inline-block px-3 py-1.5 rounded-xl cursor-default transition-all ${sizeClass} ${colorClass} ${bgClass}`}
-                            title={`Mentioned ${count} times`}
-                          >
-                            {tag}
-                          </span>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
+                <PipelineConsole />
               </div>
             </div>
 
