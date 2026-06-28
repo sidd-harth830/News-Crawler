@@ -6,7 +6,7 @@ import Exa from 'exa-js';
 import { tavily } from '@tavily/core';
 import { YoutubeTranscript } from 'youtube-transcript';
 import { GoogleGenAI } from '@google/genai';
-import { sendRichNotifications, sendAuditLog, sendBatchTelegram, sendApiExhaustedAlert } from './notifier';
+import { sendRichNotifications, sendAuditLog, sendBatchTelegram, sendApiExhaustedAlert } from './notifier.js';
 import 'dotenv/config';
 
 let errorLogs: string[] = [];
@@ -23,19 +23,20 @@ const parser = new Parser();
 
 // Initialize AI and DB clients
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string }); // Shared Gemini instance
 const supabase = createClient(
   process.env.SUPABASE_URL as string,
   process.env.SUPABASE_ANON_KEY as string
 );
 const exa = new Exa(process.env.EXA_API_KEY);
-const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY });
+const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY as string });
 
-const CORPORATE_QUERIES = [
-  "tech startup acquisition",
-  "venture capital funding round",
-  "tech executive appointment",
-  "enterprise restructuring news"
-];
+const SEARCH_QUERIES = [
+  "latest artificial intelligence breakthroughs", 
+  "new frontend web development tools", 
+  "cybersecurity news today", 
+  "startup funding tech"
+].sort(() => 0.5 - Math.random());
 
 function isValidArticle(markdown: string): boolean {
   const badWords = ["CAPTCHA", "Cloudflare", "Security Checkpoint", "Too Many Requests", "Access Denied", "DDoS", "Enable JavaScript"];
@@ -63,7 +64,7 @@ async function logTelemetry(eventType: string, targetUrl: string | null, service
 }
 
 async function runTest() {
-  console.log("Starting Phase 7 Premium Pipeline...");
+  console.log("Starting Phase 37 Premium Pipeline...");
   
   const searchTasks = ['1A', '1E', '1D', '1H'].sort(() => 0.5 - Math.random()).slice(0, 2);
   let firecrawlBudget = 3;
@@ -76,7 +77,6 @@ async function runTest() {
   let successfulIngests: string[] = [];
   errorLogs = [];
 
-  // Notice we added published_date, image_url, and preFetchedContent to our internal schema!
   let articlesToProcess: { title: string, link: string, published_date?: string, image_url?: string, preFetchedContent?: string, isSocial?: boolean, video_metadata?: any }[] = [];
 
   // --- 1A. AGENTIC SEARCH (Exa AI) ---
@@ -86,7 +86,8 @@ async function runTest() {
       exaQueries++;
       await logTelemetry('api_usage', null, 'Exa', 1);
       const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
-      const exaResponse = await exa.search("breaking tech news, major framework releases, and trending AI developments", {
+      const exaQuery = SEARCH_QUERIES[0];
+      const exaResponse = await exa.search(exaQuery, {
         type: "neural",
         useAutoprompt: true,
         numResults: 3,
@@ -109,7 +110,7 @@ async function runTest() {
 
   // --- 1B. DYNAMIC GOOGLE NEWS RSS ---
   console.log("\n[1B] Building Dynamic Google News Feeds...");
-  for (const query of CORPORATE_QUERIES) {
+  for (const query of SEARCH_QUERIES) {
     try {
       const dynamicRssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query + ' when:1d')}`;
       const feed = await parser.parseURL(dynamicRssUrl);
@@ -119,7 +120,7 @@ async function runTest() {
         articlesToProcess.push({
           title: latestItem.title || "Unknown Title",
           link: latestItem.link,
-          published_date: latestItem.isoDate || latestItem.pubDate
+          published_date: latestItem.isoDate || latestItem.pubDate || new Date().toISOString()
         });
       }
     } catch (error) {
@@ -129,12 +130,12 @@ async function runTest() {
 
   // --- 1E. TAVILY CORPORATE SEARCH ---
   if (searchTasks.includes('1E')) {
-    console.log("\n[1E] Running Tavily AI Corporate Discovery...");
-    const query = CORPORATE_QUERIES[Math.floor(Math.random() * CORPORATE_QUERIES.length)];
+    console.log("\n[1E] Running Tavily AI Discovery...");
+    const tavilyQuery = SEARCH_QUERIES[1] || "";
     try {
       tavilyQueries++;
       await logTelemetry('api_usage', null, 'Tavily', 1);
-      const tavilyResponse = await tvly.search(query, {
+      const tavilyResponse = await tvly.search(tavilyQuery, {
         searchDepth: "basic",
         timeRange: "d", 
         maxResults: 1
@@ -144,11 +145,11 @@ async function runTest() {
         articlesToProcess.push({
           title: result.title || "Tavily Discovered Article",
           link: result.url,
-          published_date: new Date().toISOString() // Tavily basic search doesn't explicitly return ISO date easily, using now as fallback
+          published_date: new Date().toISOString()
         });
       });
     } catch (error: any) {
-      console.error(`Tavily Search failed for query ${query}:`, error.message);
+      console.error(`Tavily Search failed for query ${tavilyQuery}:`, error.message);
       await handleApiError("Tavily AI", error);
     }
   }
@@ -163,7 +164,8 @@ async function runTest() {
       const redditRes = await axios.get(`https://www.reddit.com/r/${sub}/hot.json?limit=3`, {
         headers: { 
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'Accept-Language': 'en-US,en;q=0.9'
         }
       });
       const threads = redditRes.data.data.children;
@@ -190,7 +192,7 @@ async function runTest() {
         startPublishedDate: oneDayAgo
       });
       
-      socialResponse.results.forEach(result => {
+      socialResponse.results.forEach((result: any) => {
         globalSocialContext += `[Exa Social] ${result.title || 'Post'} - ${result.url}\n`;
       });
       console.log(`Exa AI found ${socialResponse.results.length} recent social/repo links!`);
@@ -199,8 +201,6 @@ async function runTest() {
       await handleApiError("Exa AI", error);
     }
   }
-
-  console.log(`\nTotal Articles Queued for Processing: ${articlesToProcess.length}`);
 
   // --- 1F. HACKER NEWS FIREBASE PIPELINE ---
   console.log("\n[1F] Fetching top stories from Hacker News Firebase API...");
@@ -221,6 +221,23 @@ async function runTest() {
       console.log(`Added ${topStoryIds.length} Hacker News stories to processing queue.`);
   } catch(e: any) {
       console.error("Hacker News API failed:", e.message);
+  }
+
+  // --- 1I. DEV.TO API INGESTION ---
+  console.log("\n[1I] Fetching top articles from Dev.to API...");
+  try {
+      const devToRes = await axios.get("https://dev.to/api/articles?top=1&per_page=5");
+      for (const article of devToRes.data) {
+          articlesToProcess.push({
+              title: article.title || "Dev.to Article",
+              link: article.url,
+              published_date: article.published_at || new Date().toISOString(),
+              image_url: article.cover_image || article.social_image
+          });
+      }
+      console.log(`Added ${devToRes.data.length} Dev.to articles to processing queue.`);
+  } catch(e: any) {
+      console.error("Dev.to API failed:", e.message);
   }
 
   // --- 1G. BLUESKY AT PROTOCOL INGESTION ---
@@ -253,7 +270,6 @@ async function runTest() {
   if (searchTasks.includes('1H')) {
     console.log("\n[1H] Searching YouTube via Exa AI...");
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         const ytResponse = await exa.search("tech announcements OR AI releases OR coding tutorials", {
             includeDomains: ["youtube.com"],
             useAutoprompt: true,
@@ -297,7 +313,7 @@ async function runTest() {
                         }
                     } else {
                         console.log(`Skipping YouTube video ${result.url}: ${primaryError.message}`);
-                        await handleApiError("Gemini / YouTube", primaryError);
+                        await handleApiError("YouTube", primaryError);
                     }
                 }
             }
@@ -370,7 +386,14 @@ async function runTest() {
             console.log("Extracting content with Jina AI...");
             await logTelemetry('crawl_attempt', article.link, 'Jina', 0);
             const jinaUrl = `https://r.jina.ai/${article.link}`;
-            const response = await axios.get(jinaUrl, { timeout: 10000 });
+            const response = await axios.get(jinaUrl, { 
+              timeout: 10000,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5'
+              }
+            });
             markdownContent = response.data;
             
           } catch (jinaError: any) {
@@ -396,7 +419,6 @@ async function runTest() {
                 
                 if (firecrawlResponse.data && firecrawlResponse.data.success) {
                   markdownContent = firecrawlResponse.data.data.markdown;
-                  // Extract Firecrawl Metadata Image
                   if (firecrawlResponse.data.data.metadata && firecrawlResponse.data.data.metadata.ogImage) {
                     heroImage = firecrawlResponse.data.data.metadata.ogImage;
                   }
@@ -423,7 +445,6 @@ async function runTest() {
         continue;
       }
 
-      // If we don't have a heroImage yet, use regex to pull the first image from markdown!
       if (!heroImage) {
         const imageMatch = markdownContent.match(/!\[.*?\]\((.*?)\)/);
         if (imageMatch && imageMatch[1] && !imageMatch[1].includes('data:image')) {
@@ -438,21 +459,39 @@ async function runTest() {
         Article: ${markdownContent.substring(0, 10000)}
       `;
       
-      const extractionResponse = await groq.chat.completions.create({
-        messages: [{ role: 'user', content: extractionPrompt }],
-        model: 'llama-3.3-70b-versatile',
-        response_format: { type: 'json_object' }
-      });
-
-      // Log Token Usage
-      await logTelemetry('api_usage', article.link, 'Groq-Extract', extractionResponse.usage?.total_tokens || 0);
-      
       let facts = [];
+      let extractTokens = 0;
+
       try {
-          const rawJson = JSON.parse(extractionResponse.choices[0]?.message?.content || "{}");
+        const extractionResponse = await groq.chat.completions.create({
+          messages: [{ role: 'user', content: extractionPrompt }],
+          model: 'llama-3.3-70b-versatile',
+          response_format: { type: 'json_object' }
+        });
+        
+        extractTokens = extractionResponse.usage?.total_tokens || 0;
+        await logTelemetry('api_usage', article.link, 'Groq-Extract', extractTokens);
+        
+        const rawJson = JSON.parse(extractionResponse.choices[0]?.message?.content || "{}");
+        facts = Array.isArray(rawJson) ? rawJson : (rawJson.facts || Object.values(rawJson)[0] || []);
+        
+      } catch (groqExtractError: any) {
+        console.log(`Groq extraction failed (${groqExtractError.message}). Falling back to Gemini...`);
+        try {
+          const geminiResponse = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: extractionPrompt + "\n\nRespond with ONLY valid JSON.",
+            config: {
+              responseMimeType: "application/json"
+            }
+          });
+          const rawJson = JSON.parse(geminiResponse.text || "{}");
           facts = Array.isArray(rawJson) ? rawJson : (rawJson.facts || Object.values(rawJson)[0] || []);
-      } catch(e) {
-          console.log("Could not parse facts.");
+          console.log("Gemini fallback extraction successful!");
+          await logTelemetry('api_usage', article.link, 'Gemini-Extract-Fallback', 1);
+        } catch (geminiExtractError: any) {
+          console.log(`Gemini fallback extraction also failed: ${geminiExtractError.message}`);
+        }
       }
       
       if (facts.length === 0) {
@@ -487,26 +526,52 @@ async function runTest() {
         }
       `;
       
-      const groqResponse = await groq.chat.completions.create({
-        messages: [{ role: 'user', content: groqPrompt }],
-        model: 'llama-3.3-70b-versatile',
-        response_format: { type: 'json_object' }
-      });
+      let verification: any = {};
+      let verifyTokens = 0;
 
-      const verifyTokens = groqResponse.usage?.total_tokens || 0;
-      const extractTokens = extractionResponse.usage?.total_tokens || 0;
+      try {
+        const groqResponse = await groq.chat.completions.create({
+          messages: [{ role: 'user', content: groqPrompt }],
+          model: 'llama-3.3-70b-versatile',
+          response_format: { type: 'json_object' }
+        });
+
+        verifyTokens = groqResponse.usage?.total_tokens || 0;
+        await logTelemetry('api_usage', article.link, 'Groq-Verify', verifyTokens);
+        verification = JSON.parse(groqResponse.choices[0]?.message?.content || "{}");
+        
+      } catch (groqVerifyError: any) {
+        console.log(`Groq verification failed (${groqVerifyError.message}). Falling back to Gemini...`);
+        try {
+          const geminiResponse = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: groqPrompt + "\n\nRespond with ONLY valid JSON.",
+            config: {
+              responseMimeType: "application/json"
+            }
+          });
+          verification = JSON.parse(geminiResponse.text || "{}");
+          console.log("Gemini fallback verification successful!");
+          await logTelemetry('api_usage', article.link, 'Gemini-Verify-Fallback', 1);
+        } catch (geminiVerifyError: any) {
+          console.log(`Gemini fallback verification also failed: ${geminiVerifyError.message}`);
+        }
+      }
+
       tokensUsed += (verifyTokens + extractTokens);
       websitesVisited++;
-
-      await logTelemetry('api_usage', article.link, 'Groq-Verify', verifyTokens);
       
-      const verification = JSON.parse(groqResponse.choices[0]?.message?.content || "{}");
       const trustScore = verification.trust_score || 0;
       const hypeScore = verification.hype_score || 0;
       const sentiment = verification.sentiment || "Skeptical";
       const category = verification.category || "[Technical]";
       const impactSummary = verification.impact_summary || "No clear impact identified.";
       
+      if (trustScore === 0 && hypeScore === 0 && impactSummary === "No clear impact identified.") {
+          console.log("Verification output was empty or failed completely. Skipping DB insert.");
+          continue;
+      }
+
       console.log(`Saving to Supabase (Category: ${category}, Trust: ${trustScore}, Image Found: ${!!heroImage})...`);
       const { error } = await supabase.from('curated_news').insert({
         title: article.title,
@@ -543,11 +608,9 @@ async function runTest() {
       
     } catch (error: any) {
       console.error(`Error processing article:`, error.message);
-      await handleApiError("Groq", error);
+      await handleApiError("Groq/Pipeline", error);
     }
 
-    // Step 2: Rate Throttling
-    // Delay 2.5 seconds between each article pass to avoid Groq 30 RPM limit
     console.log("Throttling RPM: Waiting 2.5s before next article...");
     await new Promise(r => setTimeout(r, 2500));
   }
@@ -572,7 +635,7 @@ async function runTest() {
     }
   }
 
-  console.log("Phase 7 Backend pipeline complete!");
+  console.log("Phase 37 Backend pipeline complete!");
   process.exit(0);
 }
 
