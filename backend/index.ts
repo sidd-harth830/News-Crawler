@@ -1,642 +1,326 @@
-import Parser from 'rss-parser';
-import axios from 'axios';
-import Groq from 'groq-sdk';
+import { createOpenAI } from '@ai-sdk/openai';
+import { google } from '@ai-sdk/google';
+import { mistral } from '@ai-sdk/mistral';
+import { generateObject } from 'ai';
+import { z } from 'zod';
+import { search } from 'duck-duck-scrape';
 import { createClient } from '@supabase/supabase-js';
-import Exa from 'exa-js';
-import { tavily } from '@tavily/core';
-import { YoutubeTranscript } from 'youtube-transcript';
-import { GoogleGenAI } from '@google/genai';
-import { sendRichNotifications, sendAuditLog, sendBatchTelegram, sendApiExhaustedAlert } from './notifier.js';
+import axios from 'axios';
 import 'dotenv/config';
 
-let errorLogs: string[] = [];
-async function handleApiError(serviceName: string, error: any) {
-    const status = error?.status || error?.response?.status;
-    const msg = error?.message || String(error);
-    if (status === 429 || status === 402 || status === 403) {
-        await sendApiExhaustedAlert(serviceName, msg);
-    }
-    errorLogs.push(`[${serviceName}] ${msg}`);
-}
+// --- 1. Global Configuration & Client Setup ---
 
-const parser = new Parser();
+const groq = createOpenAI({
+  baseURL: 'https://api.groq.com/openai/v1',
+  apiKey: process.env.GROQ_API_KEY as string,
+});
 
-// Initialize AI and DB clients
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string }); // Shared Gemini instance
+const openrouter = createOpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: process.env.OPENROUTER_API_KEY as string,
+});
+
+const cerebras = createOpenAI({
+  baseURL: 'https://api.cerebras.ai/v1',
+  apiKey: process.env.CEREBRAS_API_KEY as string,
+});
+
+const githubModels = createOpenAI({
+  baseURL: 'https://models.inference.ai.azure.com',
+  apiKey: process.env.GH_MODELS_TOKEN as string,
+});
+
 const supabase = createClient(
   process.env.SUPABASE_URL as string,
   process.env.SUPABASE_ANON_KEY as string
 );
-const exa = new Exa(process.env.EXA_API_KEY);
-const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY as string });
 
-const SEARCH_QUERIES = [
-  "latest artificial intelligence breakthroughs", 
-  "new frontend web development tools", 
-  "cybersecurity news today", 
-  "startup funding tech"
-].sort(() => 0.5 - Math.random());
+// --- 2. The Scout Agent (NewsData.io) ---
 
-function isValidArticle(markdown: string): boolean {
-  const badWords = ["CAPTCHA", "Cloudflare", "Security Checkpoint", "Too Many Requests", "Access Denied", "DDoS", "Enable JavaScript"];
-  const upperMarkdown = markdown.toUpperCase();
-  for (const word of badWords) {
-    if (upperMarkdown.includes(word.toUpperCase())) {
-      return false;
+async function runScoutAgent() {
+  console.log(`[Scout] Fetching latest technology news via NewsData.io...`);
+  try {
+    const res = await axios.get(`https://newsdata.io/api/1/news?apikey=${process.env.NEWSDATA_API_KEY}&category=technology&language=en`);
+    if (res.data && res.data.results) {
+      // Loop top 3 urls to save tokens during testing
+      const urls = res.data.results.slice(0, 3).map((article: any) => article.link);
+      console.log(`[Scout] Found ${urls.length} URLs to process.`);
+      return urls;
     }
+    return [];
+  } catch (error: any) {
+    console.error(`[Scout] NewsData API failed: ${error.message}`);
+    return [];
   }
-  return true;
 }
 
-// Telemetry Logger
-async function logTelemetry(eventType: string, targetUrl: string | null, serviceUsed: string, tokensUsed: number) {
+// --- 3. Agent Section 1: The Harvester ---
+
+const HarvesterSchema = z.object({
+  rawTextSummary: z.string().describe("A concise summary of the scraped content."),
+  coreClaimsToVerify: z.array(z.string()).describe("List of critical claims or facts that require verification.")
+});
+
+async function runHarvesterAgent(url: string) {
+  let scrapedText = "";
+
   try {
-    await supabase.from('agent_logs').insert({
-      event_type: eventType,
-      target_url: targetUrl,
-      service_used: serviceUsed,
-      tokens_or_credits_used: tokensUsed
+    console.log(`[Harvester] Attempting to scrape with Spider Cloud: ${url}`);
+    const spiderRes = await axios.post(
+      'https://api.spider.cloud/crawl',
+      { url, limit: 1, return_format: "markdown" },
+      { headers: { 'Authorization': `Bearer ${process.env.SPIDER_API_KEY}`, 'Content-Type': 'application/json' } }
+    );
+    scrapedText = spiderRes.data[0]?.content || "";
+    if (!scrapedText) throw new Error("Spider Cloud returned empty content.");
+  } catch (spiderError: any) {
+    console.log(`[Harvester] Spider Cloud failed (${spiderError.message}). Falling back to Firecrawl...`);
+    const firecrawlRes = await axios.post(
+      'https://api.firecrawl.dev/v1/scrape',
+      { url, formats: ['markdown'] },
+      { headers: { 'Authorization': `Bearer ${process.env.FIRECRAWL_API_KEY}`, 'Content-Type': 'application/json' } }
+    );
+    
+    if (firecrawlRes.data && firecrawlRes.data.success) {
+      scrapedText = firecrawlRes.data.data.markdown;
+    } else {
+      throw new Error("Both Spider Cloud and Firecrawl scraping failed.");
+    }
+  }
+
+  const prompt = `You are an expert data extractor. Review the following scraped article text and extract a concise summary and a list of core claims that must be fact-checked.\n\nText: ${scrapedText.substring(0, 15000)}`;
+
+  let activeModel = '';
+  try {
+    console.log(`[Harvester] Extracting with Primary Brain (Mistral)...`);
+    const result = await generateObject({
+      model: mistral('mistral-large-latest'),
+      schema: HarvesterSchema,
+      prompt: prompt,
     });
-  } catch (e) {
-    console.error("Failed to log telemetry:", e);
+    activeModel = 'Mistral-Large';
+    return { data: result.object, modelUsed: activeModel };
+  } catch (primaryError: any) {
+    console.log(`[Harvester] Primary Brain failed (${primaryError.message}). Falling back to Cerebras...`);
+    const result = await generateObject({
+      model: cerebras('llama3.1-70b'),
+      schema: HarvesterSchema,
+      prompt: prompt,
+    });
+    activeModel = '⚠️ Fallback Triggered: Cerebras';
+    return { data: result.object, modelUsed: activeModel };
   }
 }
 
-async function runTest() {
-  console.log("Starting Phase 37 Premium Pipeline...");
+// --- 4. Agent Section 2: The Verifier ---
+
+const VerifierSchema = z.object({
+  claimVerifications: z.array(z.object({
+    claim: z.string(),
+    isVerified: z.boolean(),
+    confidenceScore: z.number().min(0).max(100),
+    sourceUrls: z.array(z.string())
+  })),
+  overallTrustRating: z.number().min(0).max(100)
+});
+
+async function runVerifierAgent(claims: string[]) {
+  console.log(`[Verifier] Cross-referencing ${claims.length} claims via duck-duck-scrape...`);
   
-  const searchTasks = ['1A', '1E', '1D', '1H'].sort(() => 0.5 - Math.random()).slice(0, 2);
-  let firecrawlBudget = 3;
-  let websitesVisited = 0;
-  let blockedSites = 0;
-  let tokensUsed = 0;
-  let exaQueries = 0;
-  let tavilyQueries = 0;
-  let firecrawlCreditsUsed = 0;
-  let successfulIngests: string[] = [];
-  errorLogs = [];
-
-  let articlesToProcess: { title: string, link: string, published_date?: string, image_url?: string, preFetchedContent?: string, isSocial?: boolean, video_metadata?: any }[] = [];
-
-  // --- 1A. AGENTIC SEARCH (Exa AI) ---
-  if (searchTasks.includes('1A')) {
-    console.log("\n[1A] Running Exa AI Agentic Search...");
+  let searchContext = "";
+  for (const claim of claims) {
     try {
-      exaQueries++;
-      await logTelemetry('api_usage', null, 'Exa', 1);
-      const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
-      const exaQuery = SEARCH_QUERIES[0];
-      const exaResponse = await exa.search(exaQuery, {
-        type: "neural",
-        useAutoprompt: true,
-        numResults: 3,
-        startPublishedDate: fourHoursAgo
+      const searchResults = await search(claim);
+      const topResults = searchResults.results.slice(0, 3);
+      searchContext += `\nClaim: "${claim}"\n`;
+      topResults.forEach(r => {
+        searchContext += `- Source: ${r.url}\n  Snippet: ${r.description}\n`;
       });
-      
-      exaResponse.results.forEach((result: any) => {
-        articlesToProcess.push({
-          title: result.title || "Exa Discovered Article",
-          link: result.url,
-          published_date: result.publishedDate
-        });
-      });
-      console.log(`Exa AI found ${exaResponse.results.length} recent articles!`);
-    } catch (error: any) {
-      console.error("Exa AI Search failed:", error.message);
-      await handleApiError("Exa AI", error);
-    }
-  }
-
-  // --- 1B. DYNAMIC GOOGLE NEWS RSS ---
-  console.log("\n[1B] Building Dynamic Google News Feeds...");
-  for (const query of SEARCH_QUERIES) {
-    try {
-      const dynamicRssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query + ' when:1d')}`;
-      const feed = await parser.parseURL(dynamicRssUrl);
-      
-      const latestItem = feed.items[0];
-      if (latestItem && latestItem.link) {
-        articlesToProcess.push({
-          title: latestItem.title || "Unknown Title",
-          link: latestItem.link,
-          published_date: latestItem.isoDate || latestItem.pubDate || new Date().toISOString()
-        });
-      }
-    } catch (error) {
-      console.error(`Failed to parse Dynamic RSS for query: ${query}`);
-    }
-  }
-
-  // --- 1E. TAVILY CORPORATE SEARCH ---
-  if (searchTasks.includes('1E')) {
-    console.log("\n[1E] Running Tavily AI Discovery...");
-    const tavilyQuery = SEARCH_QUERIES[1] || "";
-    try {
-      tavilyQueries++;
-      await logTelemetry('api_usage', null, 'Tavily', 1);
-      const tavilyResponse = await tvly.search(tavilyQuery, {
-        searchDepth: "basic",
-        timeRange: "d", 
-        maxResults: 1
-      });
-      
-      tavilyResponse.results.forEach((result: any) => {
-        articlesToProcess.push({
-          title: result.title || "Tavily Discovered Article",
-          link: result.url,
-          published_date: new Date().toISOString()
-        });
-      });
-    } catch (error: any) {
-      console.error(`Tavily Search failed for query ${tavilyQuery}:`, error.message);
-      await handleApiError("Tavily AI", error);
-    }
-  }
-
-  // --- 1C. SOCIAL MEDIA INGESTION (Reddit) ---
-  console.log("\n[1C] Fetching Reddit Social Streams...");
-  let globalSocialContext = "--- CURRENT DEVELOPER CHATTER ---\n";
-  const subreddits = ['webdev', 'reactjs', 'machinelearning'];
-  
-  for (const sub of subreddits) {
-    try {
-      const redditRes = await axios.get(`https://www.reddit.com/r/${sub}/hot.json?limit=3`, {
-        headers: { 
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json',
-          'Accept-Language': 'en-US,en;q=0.9'
-        }
-      });
-      const threads = redditRes.data.data.children;
-      threads.forEach((t: any) => {
-        globalSocialContext += `[Reddit r/${sub}] ${t.data.title} (Score: ${t.data.score})\n`;
-      });
+      await new Promise(res => setTimeout(res, 500));
     } catch (e: any) {
-      console.error(`Failed to fetch Reddit r/${sub}: ${e.message}`);
+      console.log(`[Verifier] Live search failed for claim "${claim}": ${e.message}`);
     }
   }
 
-  // --- 1D. EXA AI GITHUB FILTERING ---
-  if (searchTasks.includes('1D')) {
-    console.log("\n[1D] Running Exa AI Repo Search...");
-    try {
-      exaQueries++;
-      await logTelemetry('api_usage', null, 'Exa-Social', 1);
-      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const socialResponse = await exa.search("trending AI releases, major web framework updates, developer discussions", {
-        type: "neural",
-        useAutoprompt: true,
-        numResults: 5,
-        includeDomains: ['github.com', 'news.ycombinator.com'],
-        startPublishedDate: oneDayAgo
-      });
-      
-      socialResponse.results.forEach((result: any) => {
-        globalSocialContext += `[Exa Social] ${result.title || 'Post'} - ${result.url}\n`;
-      });
-      console.log(`Exa AI found ${socialResponse.results.length} recent social/repo links!`);
-    } catch (error: any) {
-      console.error("Exa AI Social Search failed:", error.message);
-      await handleApiError("Exa AI", error);
-    }
-  }
+  const prompt = `You are a strict fact-checker. Review the original claims against the provided live search snippets. Verify if each claim is true, assign a confidence score, and list the source URLs. Finally, assign an overall trust rating.\n\nContext:\n${searchContext}`;
 
-  // --- 1F. HACKER NEWS FIREBASE PIPELINE ---
-  console.log("\n[1F] Fetching top stories from Hacker News Firebase API...");
+  let activeModel = '';
   try {
-      const topStoriesRes = await axios.get("https://hacker-news.firebaseio.com/v0/topstories.json");
-      const topStoryIds = topStoriesRes.data.slice(0, 3);
-      for (const id of topStoryIds) {
-          const storyRes = await axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
-          const story = storyRes.data;
-          if (story && story.url) {
-              articlesToProcess.push({
-                  title: story.title || "Hacker News Article",
-                  link: story.url,
-                  published_date: story.time ? new Date(story.time * 1000).toISOString() : new Date().toISOString()
-              });
-          }
-      }
-      console.log(`Added ${topStoryIds.length} Hacker News stories to processing queue.`);
-  } catch(e: any) {
-      console.error("Hacker News API failed:", e.message);
+    console.log(`[Verifier] Verifying with Primary Brain (OpenRouter/Qwen)...`);
+    const result = await generateObject({
+      model: openrouter('qwen/qwen-2.5-72b-instruct'),
+      schema: VerifierSchema,
+      prompt: prompt,
+    });
+    activeModel = 'Qwen-3-OpenRouter';
+    return { data: result.object, modelUsed: activeModel };
+  } catch (primaryError: any) {
+    console.log(`[Verifier] Primary Brain failed (${primaryError.message}). Falling back to Gemini 1.5 Flash...`);
+    const result = await generateObject({
+      model: google('gemini-1.5-flash'),
+      schema: VerifierSchema,
+      prompt: prompt,
+    });
+    activeModel = '⚠️ Fallback Triggered: Gemini 1.5 Flash';
+    return { data: result.object, modelUsed: activeModel };
   }
+}
 
-  // --- 1I. DEV.TO API INGESTION ---
-  console.log("\n[1I] Fetching top articles from Dev.to API...");
+// --- 5. Agent Section 3: The Curator ---
+
+const CuratorSchema = z.object({
+  title: z.string().describe("A catchy, premium title for the article."),
+  cleanMarkdownContent: z.string().describe("The finalized markdown prose, written in a sleek 'Acorn' typography tone, tailored for a glassmorphism UI."),
+  category: z.string().describe("The article category, e.g., 'Artificial Intelligence', 'Web Development'."),
+  finalHypeScore: z.number().min(0).max(100),
+  finalTrustScore: z.number().min(0).max(100),
+  tags: z.array(z.string()).max(5)
+});
+
+async function runCuratorAgent(harvestData: any, verificationData: any) {
+  const prompt = `You are a premium tech journalist writing for an elite SaaS product with a dark glassmorphism UI and Acorn typography tone. 
+  
+Review the following harvested data and its verification results. Write a polished, highly engaging markdown article. Ensure you synthesize the information, highlight verified facts, and assign final Hype and Trust scores based on the verifications.
+
+Harvested Summary:
+${harvestData.rawTextSummary}
+
+Verification Data:
+${JSON.stringify(verificationData.claimVerifications, null, 2)}
+Overall Trust from Verifier: ${verificationData.overallTrustRating}
+`;
+
+  let activeModel = '';
   try {
-      const devToRes = await axios.get("https://dev.to/api/articles?top=1&per_page=5");
-      for (const article of devToRes.data) {
-          articlesToProcess.push({
-              title: article.title || "Dev.to Article",
-              link: article.url,
-              published_date: article.published_at || new Date().toISOString(),
-              image_url: article.cover_image || article.social_image
-          });
-      }
-      console.log(`Added ${devToRes.data.length} Dev.to articles to processing queue.`);
-  } catch(e: any) {
-      console.error("Dev.to API failed:", e.message);
+    console.log(`[Curator] Drafting content with Primary Brain (GitHub Models/GPT-4o)...`);
+    const result = await generateObject({
+      model: githubModels('gpt-4o'),
+      schema: CuratorSchema,
+      prompt: prompt,
+    });
+    activeModel = 'GPT-4o-GitHub';
+    return { data: result.object, modelUsed: activeModel };
+  } catch (primaryError: any) {
+    console.log(`[Curator] Primary Brain failed (${primaryError.message}). Falling back to Gemini 1.5 Pro...`);
+    const result = await generateObject({
+      model: google('gemini-1.5-pro'),
+      schema: CuratorSchema,
+      prompt: prompt,
+    });
+    activeModel = '⚠️ Fallback Triggered: Gemini 1.5 Pro';
+    return { data: result.object, modelUsed: activeModel };
   }
+}
 
-  // --- 1G. BLUESKY AT PROTOCOL INGESTION ---
-  console.log("\n[1G] Fetching live posts from Bluesky API...");
+// --- 6. The Boss Agent (The Supervisor & Telemetry Router) ---
+
+async function sendDiscordTelemetry(embed: any) {
+  if (!process.env.DISCORD_LOG_WEBHOOK) return;
   try {
-      const bskyQuery = encodeURIComponent("AI OR web development");
-      const bskyRes = await axios.get(`https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${bskyQuery}&limit=3`);
-      const posts = bskyRes.data.posts || [];
-      for (const post of posts) {
-          const author = post.author?.handle || "Unknown";
-          const text = post.record?.text || "";
-          const link = `https://bsky.app/profile/${author}/post/${post.uri.split('/').pop()}`;
-          
-          globalSocialContext += `[Bluesky @${author}] ${text.substring(0, 100)}\n`;
-          
-          articlesToProcess.push({
-              title: `Bluesky Insight by @${author}`,
-              link: link,
-              published_date: post.record?.createdAt || new Date().toISOString(),
-              preFetchedContent: text,
-              isSocial: true
-          });
-      }
-      console.log(`Added ${posts.length} Bluesky posts to processing queue.`);
-  } catch(e: any) {
-      console.error("Bluesky API failed:", e.message);
+    await axios.post(process.env.DISCORD_LOG_WEBHOOK, { embeds: [embed] });
+  } catch (e: any) {
+    console.error("Failed to send Discord telemetry:", e.message);
+  }
+}
+
+export async function processPipeline() {
+  console.log(`\n========================================`);
+  console.log(`[Boss Agent] Initiating Pipeline...`);
+  
+  const urls = await runScoutAgent();
+  if (urls.length === 0) {
+    console.log("[Boss Agent] No URLs found. Exiting.");
+    return;
   }
 
-  // --- 1H. AUTONOMOUS YOUTUBE DISCOVERY ---
-  if (searchTasks.includes('1H')) {
-    console.log("\n[1H] Searching YouTube via Exa AI...");
-    try {
-        const ytResponse = await exa.search("tech announcements OR AI releases OR coding tutorials", {
-            includeDomains: ["youtube.com"],
-            useAutoprompt: true,
-            startPublishedDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-            numResults: 2
-        });
-        let ytCount = 0;
-        for (const result of ytResponse.results) {
-            let rawTranscript = "";
-            let aiSummary = "AI Summary unavailable: Video requires CAPTCHA or has disabled captions.";
-            
-            const videoIdMatch = result.url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
-            const videoId = videoIdMatch ? videoIdMatch[1] : null;
-
-            if (videoId) {
-                try {
-                    const transcriptArray = await YoutubeTranscript.fetchTranscript(videoId);
-                    rawTranscript = transcriptArray.map((t: any) => t.text).join(' ').substring(0, 50000);
-                } catch (primaryError: any) {
-                    const errMsg = primaryError.message.toLowerCase();
-                    if (errMsg.includes("captcha") || errMsg.includes("too many requests")) {
-                        console.log(`Primary YouTube fetch hit CAPTCHA/IP Block. Attempting Piped API Fallback...`);
-                        try {
-                            const pipedRes = await axios.get(`https://pipedapi.kavin.rocks/streams/${videoId}`);
-                            const subtitles = pipedRes.data?.subtitles;
-                            if (subtitles && subtitles.length > 0) {
-                                const enSub = subtitles.find((s: any) => s.code === 'en' || s.code === 'en-US' || s.code === 'en-GB' || s.autoGenerated);
-                                if (enSub && enSub.url) {
-                                    const subRes = await axios.get(enSub.url);
-                                    rawTranscript = subRes.data.replace(/<[^>]*>?/gm, ' ').substring(0, 50000);
-                                    console.log("Piped API Fallback successful!");
-                                } else {
-                                    throw new Error("No English subtitle track found on Piped.");
-                                }
-                            } else {
-                                throw new Error("No subtitles array in Piped response.");
-                            }
-                        } catch (fallbackError: any) {
-                            console.log(`Piped API Fallback failed: ${fallbackError.message}`);
-                            errorLogs.push(`[YouTube Fallback] ${fallbackError.message}`);
-                        }
-                    } else {
-                        console.log(`Skipping YouTube video ${result.url}: ${primaryError.message}`);
-                        await handleApiError("YouTube", primaryError);
-                    }
-                }
-            }
-
-            if (!rawTranscript) {
-                console.log(`Skipping ${result.url} - No transcript available for extraction.`);
-                continue;
-            }
-
-            // Generate AI Summary if we got transcript
-            if (rawTranscript) {
-                try {
-                    console.log(`Summarizing YouTube Video: ${result.title}...`);
-                    const response = await ai.models.generateContent({
-                        model: 'gemini-2.5-flash',
-                        contents: `You are a Senior Technical Analyst. Read this raw YouTube transcript and write a highly detailed, comprehensive summary. Format your response with a 2-paragraph macro-overview of the video's core subject, followed by a 'Key Technical Takeaways' section with 5 to 7 detailed bullet points. Do not hallucinate; rely only on the transcript. \n\nTranscript: ${rawTranscript}`
-                    });
-                    if (response.text) {
-                        aiSummary = response.text;
-                    }
-                } catch (geminiError: any) {
-                    console.log(`Gemini summarization failed: ${geminiError.message}`);
-                    await handleApiError("Gemini", geminiError);
-                }
-            }
-
-            articlesToProcess.push({
-                title: result.title || "YouTube Discovery",
-                link: result.url,
-                published_date: result.publishedDate,
-                preFetchedContent: aiSummary
-            });
-            ytCount++;
-        }
-        console.log(`Added ${ytCount} YouTube videos to processing queue.`);
-    } catch (error: any) {
-        console.error("YouTube Discovery failed:", error.message);
-        await handleApiError("Exa YouTube", error);
-    }
-  }
-
-  console.log(`\nFinal Total Articles Queued for Processing: ${articlesToProcess.length}`);
-
-  // --- PIPELINE PROCESSING ---
-  for (const article of articlesToProcess) {
-    console.log(`\n========================================`);
-    console.log(`Processing: ${article.title}`);
-    console.log(`URL: ${article.link}`);
+  for (const url of urls) {
+    console.log(`\n[Boss Agent] Processing URL: ${url}`);
+    const startTime = performance.now();
+    let harvesterTime = 0, verifierTime = 0, curatorTime = 0;
+    let harvesterModel = '', verifierModel = '', curatorModel = '';
     
     try {
+      // Check for duplicates first before running expensive agents
       const { data: existing } = await supabase
         .from('curated_news')
         .select('id')
-        .eq('url', article.link)
+        .eq('url', url)
         .single();
         
       if (existing) {
-        console.log("Article already exists in Supabase. Skipping.");
-        continue;
-      }
-      
-      let markdownContent = "";
-      let heroImage = article.image_url || null;
-
-      if (article.preFetchedContent) {
-          console.log("Using pre-fetched content (skipping Jina/Firecrawl)...");
-          markdownContent = article.preFetchedContent;
-      } else {
-          try {
-            console.log("Extracting content with Jina AI...");
-            await logTelemetry('crawl_attempt', article.link, 'Jina', 0);
-            const jinaUrl = `https://r.jina.ai/${article.link}`;
-            const response = await axios.get(jinaUrl, { 
-              timeout: 10000,
-              headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5'
-              }
-            });
-            markdownContent = response.data;
-            
-          } catch (jinaError: any) {
-            console.log(`Jina extraction failed or was blocked.`);
-            blockedSites++;
-            
-            if (firecrawlBudget > 0) {
-              console.log(`Falling back to Firecrawl deep scrape...`);
-              firecrawlBudget--;
-              try {
-                await logTelemetry('crawl_attempt', article.link, 'Firecrawl', 1);
-                const firecrawlUrl = 'https://api.firecrawl.dev/v1/scrape';
-                const firecrawlResponse = await axios.post(
-                  firecrawlUrl,
-                  { url: article.link, formats: ['markdown'] },
-                  {
-                    headers: {
-                      'Authorization': `Bearer ${process.env.FIRECRAWL_API_KEY}`,
-                      'Content-Type': 'application/json'
-                    }
-                  }
-                );
-                
-                if (firecrawlResponse.data && firecrawlResponse.data.success) {
-                  markdownContent = firecrawlResponse.data.data.markdown;
-                  if (firecrawlResponse.data.data.metadata && firecrawlResponse.data.data.metadata.ogImage) {
-                    heroImage = firecrawlResponse.data.data.metadata.ogImage;
-                  }
-                  console.log("Firecrawl deep scrape successful! 🚀");
-                } else {
-                  throw new Error("Firecrawl returned unsuccessful response.");
-                }
-              } catch (firecrawlError: any) {
-                console.log(`Firecrawl fallback failed too. Skipping this article.`);
-                await logTelemetry('blocked', article.link, 'Firecrawl', 1);
-                await handleApiError("Firecrawl", firecrawlError);
-                continue; 
-              }
-            } else {
-              console.log(`Firecrawl budget exhausted (max 3 fallbacks). Skipping.`);
-              continue;
-            }
-          }
+        console.log("[Boss Agent] Article already exists in Supabase. Skipping DB insert & pipeline.");
+        continue; // Go to next URL
       }
 
-      if (!isValidArticle(markdownContent)) {
-        console.log("Security wall detected in markdown, aborting article.");
-        await logTelemetry('blocked', article.link, 'Jina', 0);
-        continue;
+      // 1. Harvester
+      const t0 = performance.now();
+      const harvesterOutput = await runHarvesterAgent(url);
+      harvesterTime = performance.now() - t0;
+      harvesterModel = harvesterOutput.modelUsed;
+
+      if (!harvesterOutput.data.coreClaimsToVerify || harvesterOutput.data.coreClaimsToVerify.length === 0) {
+        throw new Error("Harvester found no claims to verify.");
       }
 
-      if (!heroImage) {
-        const imageMatch = markdownContent.match(/!\[.*?\]\((.*?)\)/);
-        if (imageMatch && imageMatch[1] && !imageMatch[1].includes('data:image')) {
-           heroImage = imageMatch[1];
-        }
-      }
-      
-      console.log("Extracting facts with Groq (Llama 3.3)...");
-      const extractionPrompt = `
-        Analyze the following article markdown and extract the 3 to 5 most important factual claims.
-        Output ONLY a JSON array of strings, where each string is a fact.
-        Article: ${markdownContent.substring(0, 10000)}
-      `;
-      
-      let facts = [];
-      let extractTokens = 0;
+      // 2. Verifier
+      const t1 = performance.now();
+      const verifierOutput = await runVerifierAgent(harvesterOutput.data.coreClaimsToVerify);
+      verifierTime = performance.now() - t1;
+      verifierModel = verifierOutput.modelUsed;
 
-      try {
-        const extractionResponse = await groq.chat.completions.create({
-          messages: [{ role: 'user', content: extractionPrompt }],
-          model: 'llama-3.3-70b-versatile',
-          response_format: { type: 'json_object' }
-        });
-        
-        extractTokens = extractionResponse.usage?.total_tokens || 0;
-        await logTelemetry('api_usage', article.link, 'Groq-Extract', extractTokens);
-        
-        const rawJson = JSON.parse(extractionResponse.choices[0]?.message?.content || "{}");
-        facts = Array.isArray(rawJson) ? rawJson : (rawJson.facts || Object.values(rawJson)[0] || []);
-        
-      } catch (groqExtractError: any) {
-        console.log(`Groq extraction failed (${groqExtractError.message}). Falling back to Gemini...`);
-        try {
-          const geminiResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: extractionPrompt + "\n\nRespond with ONLY valid JSON.",
-            config: {
-              responseMimeType: "application/json"
-            }
-          });
-          const rawJson = JSON.parse(geminiResponse.text || "{}");
-          facts = Array.isArray(rawJson) ? rawJson : (rawJson.facts || Object.values(rawJson)[0] || []);
-          console.log("Gemini fallback extraction successful!");
-          await logTelemetry('api_usage', article.link, 'Gemini-Extract-Fallback', 1);
-        } catch (geminiExtractError: any) {
-          console.log(`Gemini fallback extraction also failed: ${geminiExtractError.message}`);
-        }
-      }
-      
-      if (facts.length === 0) {
-        console.log("No facts extracted, aborting scoring.");
-        continue;
-      }
-      
-      console.log("Verifying facts and calculating Intelligence with Groq...");
-      const groqPrompt = `
-        You are an expert fact-checker and tech trend analyst. Review the following facts from an article.
-        Cross-reference them against the general social media context provided.
-        
-        1. Assign a "trust_score" from 0 to 100 based on plausibility.
-        2. Assign a "hype_score" from 0 to 100 based on how much excitement or impact this aligns with current developer chatter.
-        3. Identify the overall developer "sentiment" as "Positive", "Skeptical", or "Critical".
-        4. Categorize the article as "[Technical]", "[Corporate/Business]", or "[Macro-Trend]".
-        5. Provide a brief "impact_summary" explaining how this news might impact everyday developers or the industry.
-        
-        Social Context:
-        ${globalSocialContext}
+      // 3. Curator
+      const t2 = performance.now();
+      const curatorOutput = await runCuratorAgent(harvesterOutput.data, verifierOutput.data);
+      curatorTime = performance.now() - t2;
+      curatorModel = curatorOutput.modelUsed;
 
-        Facts to Evaluate:
-        ${JSON.stringify(facts, null, 2)}
-        
-        Output ONLY a JSON object with this exact structure:
-        {
-          "trust_score": number,
-          "hype_score": number,
-          "sentiment": "Positive" | "Skeptical" | "Critical",
-          "category": "[Technical]" | "[Corporate/Business]" | "[Macro-Trend]",
-          "impact_summary": "string"
-        }
-      `;
-      
-      let verification: any = {};
-      let verifyTokens = 0;
+      const { data: finalPayload } = curatorOutput;
 
-      try {
-        const groqResponse = await groq.chat.completions.create({
-          messages: [{ role: 'user', content: groqPrompt }],
-          model: 'llama-3.3-70b-versatile',
-          response_format: { type: 'json_object' }
-        });
-
-        verifyTokens = groqResponse.usage?.total_tokens || 0;
-        await logTelemetry('api_usage', article.link, 'Groq-Verify', verifyTokens);
-        verification = JSON.parse(groqResponse.choices[0]?.message?.content || "{}");
-        
-      } catch (groqVerifyError: any) {
-        console.log(`Groq verification failed (${groqVerifyError.message}). Falling back to Gemini...`);
-        try {
-          const geminiResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: groqPrompt + "\n\nRespond with ONLY valid JSON.",
-            config: {
-              responseMimeType: "application/json"
-            }
-          });
-          verification = JSON.parse(geminiResponse.text || "{}");
-          console.log("Gemini fallback verification successful!");
-          await logTelemetry('api_usage', article.link, 'Gemini-Verify-Fallback', 1);
-        } catch (geminiVerifyError: any) {
-          console.log(`Gemini fallback verification also failed: ${geminiVerifyError.message}`);
-        }
-      }
-
-      tokensUsed += (verifyTokens + extractTokens);
-      websitesVisited++;
-      
-      const trustScore = verification.trust_score || 0;
-      const hypeScore = verification.hype_score || 0;
-      const sentiment = verification.sentiment || "Skeptical";
-      const category = verification.category || "[Technical]";
-      const impactSummary = verification.impact_summary || "No clear impact identified.";
-      
-      if (trustScore === 0 && hypeScore === 0 && impactSummary === "No clear impact identified.") {
-          console.log("Verification output was empty or failed completely. Skipping DB insert.");
-          continue;
-      }
-
-      console.log(`Saving to Supabase (Category: ${category}, Trust: ${trustScore}, Image Found: ${!!heroImage})...`);
+      console.log("[Boss Agent] Saving verified payload to Supabase...");
       const { error } = await supabase.from('curated_news').insert({
-        title: article.title,
-        url: article.link,
-        content_markdown: markdownContent,
-        extracted_facts: facts,
-        trust_score: trustScore,
-        hype_score: hypeScore,
-        sentiment: sentiment,
-        category: category,
-        impact_summary: impactSummary,
-        image_url: heroImage,
-        published_date: article.published_date || new Date().toISOString(),
-        video_metadata: article.video_metadata || null
+        title: finalPayload.title,
+        url: url,
+        content_markdown: finalPayload.cleanMarkdownContent,
+        trust_score: finalPayload.finalTrustScore,
+        hype_score: finalPayload.finalHypeScore,
+        sentiment: finalPayload.finalTrustScore > 70 ? "Positive" : "Skeptical",
+        category: finalPayload.category,
+        impact_summary: finalPayload.tags.join(", "),
+        published_date: new Date().toISOString()
       });
-      
-      if (error) {
-        console.error("Error saving to Supabase:", error);
-      } else {
-        console.log("Successfully saved to Supabase!");
-        successfulIngests.push(article.title);
-        await sendRichNotifications(
-          article.title, 
-          article.link, 
-          heroImage, 
-          category, 
-          trustScore, 
-          hypeScore, 
-          sentiment, 
-          impactSummary, 
-          facts
-        );
-      }
+      if (error) throw new Error(`Supabase insert failed: ${error.message}`);
+
+      // Discord Telemetry - Success
+      await sendDiscordTelemetry({
+        title: "🟢 Pipeline Execution Success",
+        description: `Successfully processed URL: [Link](${url})\n\n**Audit Trail:**\n[Harvester]: Success via ${harvesterModel} (${(harvesterTime / 1000).toFixed(1)}s)\n[Verifier]: Success via ${verifierModel} (${(verifierTime / 1000).toFixed(1)}s)\n[Curator]: Success via ${curatorModel} (${(curatorTime / 1000).toFixed(1)}s)`,
+        color: 0x00FF00,
+        fields: [
+          { name: "Final Metrics", value: `Trust: ${finalPayload.finalTrustScore}/100\nHype: ${finalPayload.finalHypeScore}/100`, inline: false },
+        ],
+        footer: { text: `Total Time: ${((performance.now() - startTime) / 1000).toFixed(1)}s` }
+      });
+
+      console.log("[Boss Agent] Processing Complete for URL.");
       
     } catch (error: any) {
-      console.error(`Error processing article:`, error.message);
-      await handleApiError("Groq/Pipeline", error);
-    }
-
-    console.log("Throttling RPM: Waiting 2.5s before next article...");
-    await new Promise(r => setTimeout(r, 2500));
-  }
-  
-  console.log("\n========================================");
-  console.log("Dispatching final batch notifications...");
-  await sendBatchTelegram();
-  await sendAuditLog(successfulIngests, exaQueries, tavilyQueries, firecrawlCreditsUsed, tokensUsed, errorLogs);
-  console.log("All notifications dispatched.");
-
-  if (process.env.TELEGRAM_LOADING_MSG_ID && process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
-    try {
-      console.log(`Deleting Telegram loading message: ${process.env.TELEGRAM_LOADING_MSG_ID}`);
-      await axios.get(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/deleteMessage`, {
-        params: {
-          chat_id: process.env.TELEGRAM_CHAT_ID,
-          message_id: process.env.TELEGRAM_LOADING_MSG_ID
-        }
+      console.error(`[Boss Agent] CRITICAL FAILURE for ${url}: ${error.message}`);
+      
+      // Discord Telemetry - Failure
+      await sendDiscordTelemetry({
+        title: "🔴 Pipeline Execution Failed",
+        description: `Failed to process URL: ${url}`,
+        color: 0xFF0000,
+        fields: [
+          { name: "Error Message", value: error.message || "Unknown error" }
+        ],
+        footer: { text: `Failed after ${((performance.now() - startTime) / 1000).toFixed(1)}s` }
       });
-    } catch (err: any) {
-      console.log(`Failed to delete Telegram loading message: ${err.message}`);
     }
   }
-
-  console.log("Phase 37 Backend pipeline complete!");
-  process.exit(0);
 }
 
-runTest();
+// Execute pipeline if run directly
+if (process.argv[1] && import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`) {
+  processPipeline().then(() => process.exit(0));
+}

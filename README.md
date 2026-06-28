@@ -2,7 +2,7 @@
 
 # 🌌 Omni-Channel Tech Radar
 
-**An Autonomous, AI-Powered Intelligence Pipeline & Command Center**
+**An Autonomous, Hierarchical Agentic Swarm & Command Center**
 
 [![Typing SVG](https://readme-typing-svg.demolab.com?font=Inter&weight=600&size=20&duration=4000&pause=1000&color=3B82F6&center=true&vCenter=true&width=600&lines=Autonomous+Tech+Intelligence;Real-Time+Telemetry;AI-Verified+Data)](https://git.io/typing-svg)
 
@@ -11,6 +11,7 @@
 [![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](#)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](#)
 [![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](#)
+[![Mistral AI](https://img.shields.io/badge/Mistral_AI-F54F29?style=for-the-badge&logo=mistral&logoColor=white)](#)
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlebard&logoColor=white)](#)
 
 <br/>
@@ -24,91 +25,99 @@
 
 <br/>
 
-> **Omni-Channel Tech Radar** transcends the standard RSS reader. It is a highly-tuned, autonomous intelligence pipeline designed to ingest the noise of the modern web and distill it into high-fidelity, verified signal. By leveraging massive parallel scraping, algorithmic AI verification, and real-time webhook routing, it serves as a central command center for tracking the bleeding edge of technology.
+> **Omni-Channel Tech Radar** transcends the standard RSS reader. It is a highly-tuned, autonomous intelligence pipeline designed to ingest the noise of the modern web and distill it into high-fidelity, verified signal. By leveraging a decoupled, Hierarchical Agent Swarm via the Vercel AI SDK and a stunning Dual-Glassmorphism Next.js UI, it serves as a central command center for tracking the bleeding edge of technology.
 
 ---
 
-## 🏗️ System Architecture: The Deep Dive
+## 🏗️ System Architecture: The Agentic Swarm
 
-Our architecture is strictly divided into an autonomous backend ingestion engine and a highly interactive, serverless front-end dashboard. Every component was designed with fault-tolerance, speed, and real-time responsiveness in mind.
+Our backend ingestion engine has been completely refactored from a monolithic script into a modular, fault-tolerant Agentic Swarm. It utilizes multi-LLM automated fallbacks and strict Zod schema parsing.
 
-### 1. The Ingestion Engine (Data Harvesting)
-Running completely serverlessly via **GitHub Actions**, our automated cron jobs awake every 90 minutes. This engine systematically sweeps a curated array of highly dense information vectors: RSS feeds, specific GitHub repository releases, and key YouTube channels. By orchestrating parallel fetch requests, we rapidly index raw, unstructured data before it hits the mainstream algorithm.
+```mermaid
+graph TD;
+  Cron[GitHub Actions Cron <br> Triggers every 2 hours] --> Boss[Boss Agent <br> Telemetry Router]
+  Boss --> Scout[Scout Agent <br> NewsData.io API fetches global URLs]
+  Scout --> Harvester[Harvester Agent <br> Spider Cloud HTML Extraction]
+  Harvester -- Mistral Native API (Primary) --> ExtractedJSON[Extracted JSON Claims]
+  Harvester -. Cerebras Llama 3 (Fallback) .-> ExtractedJSON
+  ExtractedJSON --> Verifier[Verifier Agent <br> DuckDuckGo Live Search]
+  Verifier -- OpenRouter Qwen 3 (Primary) --> VerifiedClaims[Verified Claims]
+  Verifier -. Gemini 1.5 Flash (Fallback) .-> VerifiedClaims
+  VerifiedClaims --> Curator[Curator Agent <br> Markdown Formatting]
+  Curator -- GitHub Models GPT-4o (Primary) --> FinalProse[Premium UI Prose <br> Hype & Trust Scores]
+  Curator -. Gemini 1.5 Pro (Fallback) .-> FinalProse
+  FinalProse --> Supabase[(Supabase Database)]
+  FinalProse --> Discord[Discord Telemetry Log]
+```
 
-### 2. The AI Brain (Verification & Extraction)
-Raw data is notoriously filled with clickbait and tracking garbage. We intercept URLs and strip them down to pure markdown using extraction APIs like **Firecrawl/Jina AI**. This raw text is immediately piped into the **Google Gemini API**, where a complex system prompt forces the LLM to:
-- Eradicate clickbait and extract only the empirical facts.
-- Generate a concise, boardroom-ready executive summary.
-- Compute mathematical algorithmic scores out of 100 for **"Trust"** (verifiability) and **"Hype"** (marketing fluff).
-- Categorize the vector as a Macro-Trend, Open-Source Repo, or General Tech News.
-
-### 3. The Relational Database (State Management)
-Verified intelligence is committed to a **Supabase PostgreSQL** database. Rather than relying on simple local state, our architecture implements robust **Row Level Security (RLS)** and complex junction tables (`user_read_status`). This empowers individual, authenticated users to have completely distinct states—allowing instantaneous tracking of Unread articles and securing historical data in a permanent, searchable **Archive Vault**.
-
-### 4. The UI/UX Philosophy (The Command Center)
-The frontend Next.js application was meticulously engineered to feel premium and frictionless.
-- **Bento-Grid Masonry:** A Javascript-calculated, multi-column cascade that organizes dense data into a highly readable, Pinterest-style interface.
-- **Custom Typography:** Driven by the bold and highly legible **Acorn** font for superior editorial hierarchy.
-- **Optimistic UI:** When marking intelligence as 'Read', the UI instantly updates without waiting for server round-trips, ensuring zero interaction lag.
-- **Soft Light Mode:** In addition to a sleek dark mode, we engineered a low-strain "Soft Light Mode" that utilizes warm stone tones instead of harsh pure whites, drastically reducing eye fatigue.
+### The 5 Core Agents
+* **👔 The Boss Agent:** The supervisor orchestrating the entire pipeline and tracking telemetry timings. Powered by Vercel AI SDK to manage execution chains and post Discord audits.
+* **🔭 The Scout Agent:** The frontline recon unit using the NewsData.io API to fetch the latest breaking tech articles. It dynamically feeds global URLs into the processing queue.
+* **🚜 The Harvester Agent:** The extraction engine using Spider Cloud to pull raw HTML and the Mistral Native API to extract strict JSON claims. Backed up by Cerebras Llama 3 for seamless failover.
+* **🔎 The Verifier Agent:** The fact-checking powerhouse hitting the live web via DuckDuckGo Scrape. Powered by OpenRouter Qwen 3 to cross-reference claims, with Gemini as a fallback.
+* **✍️ The Curator Agent:** The SaaS copywriter finalizing the prose. Driven by GitHub Models GPT-4o to format the content with Acorn typography and compute final Hype/Trust metrics.
 
 ---
 
-## 🛠️ Step-by-Step API Setup Guides
+## 🖥️ The Dashboard: Dual-Glassmorphism UI
 
-Because the Omni-Channel Tech Radar is deeply integrated with third-party webhooks and AI models, setting up your environment requires some API key generation. Follow these idiot-proof guides to get your command center fully online.
+The frontend is a serverless Next.js App Router application engineered for premium aesthetics:
+- **Dual-Glassmorphism:** A seamless dark and light mode utilizing Tailwind `dark:` utility variants to transition from a bright `stone-50` backdrop to a deep `#0B0E14` cinematic canvas.
+- **Acorn Typography:** Custom, bold typography ensuring superior editorial hierarchy across the dynamic Bento-grid cards.
+- **Supabase Realtime:** Verified intelligence is committed to a Supabase PostgreSQL database using Row Level Security (RLS) and complex junction tables (`user_read_status`), giving every user their own personalized intelligence vault.
 
-<details>
-<summary><b>1. 💬 Discord Webhooks (Multi-Channel Routing)</b></summary>
-<br/>
+---
 
-To receive real-time, categorized news alerts in your Discord server:
-1. Open your Discord Server and create 4 distinct channels (e.g., `#macro-news`, `#repo-alerts`, `#video-intel`, `#server-logs`).
-2. Hover over a channel, click the **Gear Icon (Edit Channel)**.
-3. Navigate to **Integrations** -> **Webhooks** -> **New Webhook**.
-4. Name the Webhook, copy the **Webhook URL**, and save your changes.
-5. Repeat this for all 4 channels and paste the URLs into your backend `.env` variables:
-   - `DISCORD_MACRO_WEBHOOK_URL`
-   - `DISCORD_REPO_WEBHOOK_URL`
-   - `DISCORD_VIDEO_WEBHOOK_URL`
-   - `DISCORD_CRASH_WEBHOOK_URL`
-</details>
+## 🔐 The API Key Vault (`.env.example`)
 
-<details>
-<summary><b>2. 🤖 Telegram Bot Configuration (Broadcasts)</b></summary>
-<br/>
+To run this enterprise-grade pipeline, configure these exact environment variables. 
 
-To receive formatted intelligence broadcasts straight to your phone:
-1. Open Telegram and search for **@BotFather**.
-2. Start a chat and send the command `/newbot`.
-3. Follow the prompts to name your bot and choose a username.
-4. BotFather will reply with an **HTTP API Token**. Save this as your `TELEGRAM_BOT_TOKEN`.
-5. To get your **Chat ID**, send a message to your new bot, then open your browser and visit:
-   `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates`
-6. Look for the `"chat": {"id": 123456789}` array in the JSON response. Save this number as your `TELEGRAM_CHAT_ID`.
-</details>
+```bash
+# ==========================================
+# FRONTEND VARIABLES (.env.local)
+# ==========================================
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
 
-<details>
-<summary><b>3. 🧠 Gemini AI & 🗄️ Supabase Configuration</b></summary>
-<br/>
+# ==========================================
+# BACKEND SECRETS (GitHub Actions)
+# ==========================================
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+DISCORD_LOG_WEBHOOK=
+GROQ_API_KEY=
+NEWSDATA_API_KEY=
+MISTRAL_API_KEY=
+OPENROUTER_API_KEY=
+CEREBRAS_API_KEY=
+GEMINI_API_KEY=
+GH_MODELS_TOKEN=
+SPIDER_API_KEY=
+```
 
-**Google Gemini API:**
-1. Navigate to [Google AI Studio](https://aistudio.google.com/app/apikey).
-2. Click **Create API Key** and generate a new key for a new project. 
-3. Save this as your `GEMINI_API_KEY`.
+---
 
-**Supabase Configuration:**
-1. Navigate to your [Supabase Dashboard](https://supabase.com/dashboard) and create a new project.
-2. Go to **Project Settings** -> **API**.
-3. Copy your Project URL and anon `public` key for your frontend `.env.local` (`NEXT_PUBLIC_SUPABASE_URL` & `NEXT_PUBLIC_SUPABASE_ANON_KEY`).
-4. Scroll down and copy the `service_role` secret key for your backend and server actions (`SUPABASE_SERVICE_ROLE_KEY`).
-</details>
+## 🛠️ Obtaining Your Credentials
+
+Follow these quick instructions to automate the system and provision your keys completely free:
+
+> [!TIP]
+> **Supabase:** Dashboard -> Project Settings -> API (Copy URL, anon key, and service_role key). <br>
+> **Discord Webhook:** Server Settings -> Integrations -> Webhooks -> New Webhook (Copy URL).
+
+* **NewsData.io:** Register at [newsdata.io](https://newsdata.io) to receive 200 free daily calls for the Scout Agent.
+* **Mistral AI:** Head to [console.mistral.ai](https://console.mistral.ai), add billing (not charged), and utilize the Free Experiment Tier for the primary Harvester.
+* **OpenRouter:** Visit [openrouter.ai](https://openrouter.ai) to route to free Qwen 3 models for the Verifier Agent.
+* **Cerebras:** Sign up for an API key to access ultra-fast inference for the Harvester fallback.
+* **GitHub Models:** Go to your GitHub Settings -> Developer Settings -> Personal Access Tokens (Fine-grained). Create a token with **`models:read`** permissions and save it as your `GH_MODELS_TOKEN`.
+* **Spider Cloud:** Register at [spider.cloud](https://spider.cloud) to provision your scraping API key.
+* **Google Gemini:** Visit [Google AI Studio](https://aistudio.google.com/app/apikey) for free access to Gemini 1.5 Flash/Pro fallbacks.
 
 ---
 
 ## 🚀 Installation & Deployment
 
-Deploying your local instance is straightforward once your environment is configured.
+Deploying your local instance is straightforward:
 
 ```bash
 # 1. Clone the repository
@@ -122,4 +131,4 @@ npm install
 npm run dev
 ```
 
-*Note: The backend engine runs autonomously in GitHub Actions. Be sure to configure your repository secrets before enabling the workflow!*
+*Note: The backend engine runs autonomously in GitHub Actions. Be sure to configure your repository secrets via the Vault above before enabling the workflow!*
