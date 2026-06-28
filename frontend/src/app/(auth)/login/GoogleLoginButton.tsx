@@ -13,7 +13,8 @@ export default function GoogleLoginButton() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: 'http://localhost:3000/oauth/consent'
+        // Dynamically detects localhost vs Vercel production
+        redirectTo: `${window.location.origin}/auth/callback`
       }
     })
     
