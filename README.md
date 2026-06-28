@@ -35,19 +35,25 @@ Our backend ingestion engine has been completely refactored from a monolithic sc
 
 ```mermaid
 graph TD;
-  Cron[GitHub Actions Cron <br> Triggers every 2 hours] --> Boss[Boss Agent <br> Telemetry Router]
-  Boss --> Scout[Scout Agent <br> NewsData.io API fetches global URLs]
-  Scout --> Harvester[Harvester Agent <br> Spider Cloud HTML Extraction]
-  Harvester -- Mistral Native API (Primary) --> ExtractedJSON[Extracted JSON Claims]
-  Harvester -. Cerebras Llama 3 (Fallback) .-> ExtractedJSON
-  ExtractedJSON --> Verifier[Verifier Agent <br> DuckDuckGo Live Search]
-  Verifier -- OpenRouter Qwen 3 (Primary) --> VerifiedClaims[Verified Claims]
-  Verifier -. Gemini 1.5 Flash (Fallback) .-> VerifiedClaims
-  VerifiedClaims --> Curator[Curator Agent <br> Markdown Formatting]
-  Curator -- GitHub Models GPT-4o (Primary) --> FinalProse[Premium UI Prose <br> Hype & Trust Scores]
-  Curator -. Gemini 1.5 Pro (Fallback) .-> FinalProse
-  FinalProse --> Supabase[(Supabase Database)]
-  FinalProse --> Discord[Discord Telemetry Log]
+  Cron[GitHub Actions Cron] --> Boss[Boss Agent]
+  Boss --> Scout[Scout Agent]
+  Scout --> Harvester[Harvester Agent]
+  
+  Harvester -->|Mistral Native API| ExtractedJSON[Extracted JSON Claims]
+  Harvester -.->|Cerebras API Fallback| ExtractedJSON
+  
+  ExtractedJSON --> Verifier[Verifier Agent]
+  
+  Verifier -->|OpenRouter Qwen 3| VerifiedClaims[Verified Claims]
+  Verifier -.->|Gemini Flash Fallback| VerifiedClaims
+  
+  VerifiedClaims --> Curator[Curator Agent]
+  
+  Curator -->|GitHub Models GPT-4o| FinalData[Premium UI Prose]
+  Curator -.->|Gemini Pro Fallback| FinalData
+  
+  FinalData --> Supabase[(Supabase Database)]
+  FinalData --> Discord[Discord Telemetry Log]
 ```
 
 ### The 5 Core Agents
