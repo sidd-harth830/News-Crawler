@@ -30,7 +30,7 @@ const cerebras = createOpenAI({
 });
 
 const github = createOpenAI({
-  baseURL: 'https://models.inference.ai.azure.com',
+  baseURL: 'https://models.inference.ai.azure.com/v1',
   apiKey: process.env.GH_MODELS_TOKEN as string,
 });
 
@@ -120,16 +120,12 @@ async function runHarvesterAgent(url: string) {
   let scrapedText = "";
 
   try {
-    console.log(`[Harvester] Attempting to scrape with Spider Cloud: ${url}`);
-    const spiderRes = await axios.post(
-      'https://api.spider.cloud/crawl',
-      { url, limit: 1, return_format: "markdown" },
-      { headers: { 'Authorization': `Bearer ${process.env.SPIDER_API_KEY}`, 'Content-Type': 'application/json' } }
-    );
-    scrapedText = spiderRes.data[0]?.content || "";
-    if (!scrapedText) throw new Error("Spider Cloud returned empty content.");
-  } catch (spiderError: any) {
-    console.log(`[Harvester] Spider Cloud failed (${spiderError.message}). Falling back to Firecrawl...`);
+    console.log(`[Harvester] Attempting to scrape with Jina AI: ${url}`);
+    const response = await fetch('https://r.jina.ai/' + url, { headers: { 'X-Return-Format': 'markdown' } });
+    scrapedText = await response.text();
+    if (!scrapedText) throw new Error("Jina AI returned empty content.");
+  } catch (jinaError: any) {
+    console.log(`[Harvester] Jina AI failed (${jinaError.message}). Falling back to Firecrawl...`);
     const firecrawlRes = await axios.post(
       'https://api.firecrawl.dev/v1/scrape',
       { url, formats: ['markdown'] },
@@ -139,7 +135,7 @@ async function runHarvesterAgent(url: string) {
     if (firecrawlRes.data && firecrawlRes.data.success) {
       scrapedText = firecrawlRes.data.data.markdown;
     } else {
-      throw new Error("Both Spider Cloud and Firecrawl scraping failed.");
+      throw new Error("Both Jina AI and Firecrawl scraping failed.");
     }
   }
 
@@ -180,20 +176,21 @@ const VerifierSchema = z.object({
 });
 
 async function runVerifierAgent(claims: string[]) {
-  console.log(`[Verifier] Cross-referencing ${claims.length} claims via duck-duck-scrape...`);
+  console.log(`[Verifier] Cross-referencing ${claims.length} claims via Tavily API...`);
   
   let searchContext = "";
   const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+  const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY as string });
 
   for (const claim of claims) {
     try {
-      const searchResults = await search(claim);
-      const topResults = searchResults.results.slice(0, 3);
+      const res = await tvly.search(claim, { maxResults: 1 });
+      const topResult = res.results[0];
       searchContext += `\nClaim: "${claim}"\n`;
-      topResults.forEach(r => {
-        searchContext += `- Source: ${r.url}\n  Snippet: ${r.description}\n`;
-      });
-      await delay(2500);
+      if (topResult) {
+        searchContext += `- Source: ${topResult.url}\n  Snippet: ${topResult.content}\n`;
+      }
+      await delay(1000);
     } catch (e: any) {
       console.log(`[Verifier] Live search failed for claim "${claim}": ${e.message}`);
     }
@@ -258,13 +255,13 @@ Overall Trust from Verifier: ${verificationData.overallTrustRating}
     activeModel = 'GPT-4o-GitHub';
     return { data: result.object, modelUsed: activeModel };
   } catch (primaryError: any) {
-    console.log(`[Curator] Primary Brain failed (${primaryError.message}). Falling back to Gemini 1.5 Pro...`);
+    console.log(`[Curator] Primary Brain failed (${primaryError.message}). Falling back to Gemini 1.5 Flash...`);
     const result = await generateObject({
-      model: google('gemini-1.5-pro'),
+      model: google('gemini-1.5-flash'),
       schema: CuratorSchema,
       prompt: prompt,
     });
-    activeModel = '⚠️ Fallback Triggered: Gemini 1.5 Pro';
+    activeModel = '⚠️ Fallback Triggered: Gemini 1.5 Flash';
     return { data: result.object, modelUsed: activeModel };
   }
 }
@@ -372,19 +369,13 @@ export async function processPipeline() {
     } catch (error: any) {
       console.error(`[Boss Agent] CRITICAL FAILURE for ${url}: ${error.message}`);
       
-      // Discord Telemetry - Failure (using standard fetch to bypass axios issues)
       if (process.env.DISCORD_LOG_WEBHOOK) {
         try {
           await fetch(process.env.DISCORD_LOG_WEBHOOK, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              embeds: [{
-                title: "🔴 **Pipeline Crash**",
-                description: `URL: ${url}\nError: ${error.message}`,
-                color: 0xFF0000,
-                footer: { text: `Failed after ${((performance.now() - startTime) / 1000).toFixed(1)}s` }
-              }]
+              embeds: [{ title: '🔴 Pipeline Crash', description: `**URL:** ${url}\n**Error:** ${error.message}`, color: 16711680 }]
             })
           });
         } catch (fetchErr) {
