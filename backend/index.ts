@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { mistral } from '@ai-sdk/mistral';
 import { generateObject } from 'ai';
 import { z } from 'zod';
@@ -11,6 +11,8 @@ import { tavily } from '@tavily/core';
 import 'dotenv/config';
 
 // --- 1. Global Configuration & Client Setup ---
+
+const google = createGoogleGenerativeAI({ apiKey: process.env.GEMINI_API_KEY as string });
 
 const groq = createOpenAI({
   baseURL: 'https://api.groq.com/openai/v1',
@@ -27,7 +29,7 @@ const cerebras = createOpenAI({
   apiKey: process.env.CEREBRAS_API_KEY as string,
 });
 
-const githubModels = createOpenAI({
+const github = createOpenAI({
   baseURL: 'https://models.inference.ai.azure.com',
   apiKey: process.env.GH_MODELS_TOKEN as string,
 });
@@ -181,6 +183,8 @@ async function runVerifierAgent(claims: string[]) {
   console.log(`[Verifier] Cross-referencing ${claims.length} claims via duck-duck-scrape...`);
   
   let searchContext = "";
+  const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
   for (const claim of claims) {
     try {
       const searchResults = await search(claim);
@@ -189,7 +193,7 @@ async function runVerifierAgent(claims: string[]) {
       topResults.forEach(r => {
         searchContext += `- Source: ${r.url}\n  Snippet: ${r.description}\n`;
       });
-      await new Promise(res => setTimeout(res, 500));
+      await delay(2500);
     } catch (e: any) {
       console.log(`[Verifier] Live search failed for claim "${claim}": ${e.message}`);
     }
@@ -247,7 +251,7 @@ Overall Trust from Verifier: ${verificationData.overallTrustRating}
   try {
     console.log(`[Curator] Drafting content with Primary Brain (GitHub Models/GPT-4o)...`);
     const result = await generateObject({
-      model: githubModels('gpt-4o'),
+      model: github('gpt-4o'),
       schema: CuratorSchema,
       prompt: prompt,
     });
@@ -368,16 +372,25 @@ export async function processPipeline() {
     } catch (error: any) {
       console.error(`[Boss Agent] CRITICAL FAILURE for ${url}: ${error.message}`);
       
-      // Discord Telemetry - Failure
-      await sendDiscordTelemetry({
-        title: "🔴 Pipeline Execution Failed",
-        description: `Failed to process URL: ${url}`,
-        color: 0xFF0000,
-        fields: [
-          { name: "Error Message", value: error.message || "Unknown error" }
-        ],
-        footer: { text: `Failed after ${((performance.now() - startTime) / 1000).toFixed(1)}s` }
-      });
+      // Discord Telemetry - Failure (using standard fetch to bypass axios issues)
+      if (process.env.DISCORD_LOG_WEBHOOK) {
+        try {
+          await fetch(process.env.DISCORD_LOG_WEBHOOK, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              embeds: [{
+                title: "🔴 **Pipeline Crash**",
+                description: `URL: ${url}\nError: ${error.message}`,
+                color: 0xFF0000,
+                footer: { text: `Failed after ${((performance.now() - startTime) / 1000).toFixed(1)}s` }
+              }]
+            })
+          });
+        } catch (fetchErr) {
+          console.error("[Boss Agent] Failed to send Discord crash log via fetch.");
+        }
+      }
     }
   }
 }
