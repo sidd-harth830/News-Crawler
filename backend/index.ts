@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { search } from 'duck-duck-scrape';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
+import Exa from 'exa-js';
+import { tavily } from '@tavily/core';
 import 'dotenv/config';
 
 // --- 1. Global Configuration & Client Setup ---
@@ -44,15 +46,66 @@ async function runScoutAgent() {
     if (res.data && res.data.results) {
       // Loop top 3 urls to save tokens during testing
       const urls = res.data.results.slice(0, 3).map((article: any) => article.link);
-      console.log(`[Scout] Found ${urls.length} URLs to process.`);
+      console.log(`[Scout] Found ${urls.length} URLs via NewsData.`);
       return urls;
     }
     return [];
   } catch (error: any) {
-    console.error(`[Scout] NewsData API failed: ${error.message}`);
+    console.error(`[Scout] ⚠️ Scout Agent failed, relying on fallback sources. Error: ${error.message}`);
     return [];
   }
 }
+
+async function getHackerNewsUrls() {
+  try {
+    const res = await axios.get('https://hacker-news.firebaseio.com/v0/topstories.json');
+    const ids = res.data.slice(0, 2);
+    const urls: string[] = [];
+    for (const id of ids) {
+      const story = await axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
+      if (story.data && story.data.url) urls.push(story.data.url);
+    }
+    return urls;
+  } catch (e: any) {
+    console.error(`[Scout-Fallback] HackerNews failed: ${e.message}`);
+    return [];
+  }
+}
+
+async function getDevToUrls() {
+  try {
+    const res = await axios.get('https://dev.to/api/articles?top=1&per_page=2');
+    return res.data.map((a: any) => a.url);
+  } catch (e: any) {
+    console.error(`[Scout-Fallback] Dev.to failed: ${e.message}`);
+    return [];
+  }
+}
+
+async function getExaUrls() {
+  if (!process.env.EXA_API_KEY) return [];
+  try {
+    const exa = new (Exa as any)(process.env.EXA_API_KEY);
+    const result = await exa.searchAndContents("latest artificial intelligence startup news", { type: "neural", numResults: 2 });
+    return result.results.map((r: any) => r.url);
+  } catch (e: any) {
+    console.error(`[Scout-Fallback] Exa failed: ${e.message}`);
+    return [];
+  }
+}
+
+async function getTavilyUrls() {
+  if (!process.env.TAVILY_API_KEY) return [];
+  try {
+    const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY });
+    const res = await tvly.search("latest tech news", { maxResults: 2 });
+    return res.results.map((r: any) => r.url);
+  } catch (e: any) {
+    console.error(`[Scout-Fallback] Tavily failed: ${e.message}`);
+    return [];
+  }
+}
+
 
 // --- 3. Agent Section 1: The Harvester ---
 
@@ -227,13 +280,22 @@ export async function processPipeline() {
   console.log(`\n========================================`);
   console.log(`[Boss Agent] Initiating Pipeline...`);
   
-  const urls = await runScoutAgent();
-  if (urls.length === 0) {
-    console.log("[Boss Agent] No URLs found. Exiting.");
+  const scoutUrls = await runScoutAgent();
+  const hnUrls = await getHackerNewsUrls();
+  const devToUrls = await getDevToUrls();
+  const exaUrls = await getExaUrls();
+  const tavilyUrls = await getTavilyUrls();
+
+  const allUrls = [...new Set([...scoutUrls, ...hnUrls, ...devToUrls, ...exaUrls, ...tavilyUrls])];
+
+  if (allUrls.length === 0) {
+    console.log("[Boss Agent] No URLs found from any source. Exiting.");
     return;
   }
+  
+  console.log(`[Boss Agent] Consolidated ${allUrls.length} total URLs for processing.`);
 
-  for (const url of urls) {
+  for (const url of allUrls) {
     console.log(`\n[Boss Agent] Processing URL: ${url}`);
     const startTime = performance.now();
     let harvesterTime = 0, verifierTime = 0, curatorTime = 0;

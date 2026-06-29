@@ -36,6 +36,11 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+          NEWSDATA_API_KEY: ${{ secrets.NEWSDATA_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          SPIDER_API_KEY: ${{ secrets.SPIDER_API_KEY }}
           DISCORD_MACRO_WEBHOOK_URL: ${{ secrets.DISCORD_MACRO_WEBHOOK_URL }}
           DISCORD_REPO_WEBHOOK_URL: ${{ secrets.DISCORD_REPO_WEBHOOK_URL }}
           DISCORD_VIDEO_WEBHOOK_URL: ${{ secrets.DISCORD_VIDEO_WEBHOOK_URL }}
