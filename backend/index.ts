@@ -382,7 +382,13 @@ export async function processPipeline() {
   }
 }
 
-// Execute pipeline if run directly
-if (process.argv[1] && import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`) {
-  processPipeline().then(() => process.exit(0));
+// --- Execution Hook ---
+async function main() {
+  if (!process.env.GROQ_API_KEY) {
+    console.error("🚨 WARNING: GROQ_API_KEY is missing! Your local .env file might be missing from the backend directory.");
+  }
+  console.log("🚀 Initiating Boss Agent Swarm Pipeline...");
+  await processPipeline();
 }
+
+main().catch(console.error);
